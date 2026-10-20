@@ -3,6 +3,9 @@ import SwiftUI
 enum AppInfo {
     /// From the bundle's Info.plist, which bundle.sh fills from the VERSION file.
     static let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
+    // Shown in the About window — edit these to change what it says.
+    static let author = "ezypezy22"
+    static let repoURL = URL(string: "https://github.com/ezypezy22/antennagenius_8x2")!
 }
 
 /// Stand-in for @State: the SwiftUI macro plugin isn't shipped with the Command Line Tools.
@@ -45,12 +48,13 @@ struct ContentView: View {
     @EnvironmentObject var client: AGClient
     @StateObject private var showSettings = Box(false)
     @StateObject private var showLog = Box(false)
+    @StateObject private var showAbout = Box(false)
     @AppStorage("darkMode") private var darkMode = false
 
     var body: some View {
         Group {
             if client.state == .connected {
-                PanelView(showSettings: showSettings, showLog: showLog)
+                PanelView(showSettings: showSettings, showLog: showLog, showAbout: showAbout)
             } else {
                 ConnectView()
             }
@@ -59,6 +63,7 @@ struct ContentView: View {
         .background(Theme.window)
         .preferredColorScheme(darkMode ? .dark : .light)
         .sheet(isPresented: $showSettings.value) { SettingsView(close: { showSettings.value = false }) }
+        .sheet(isPresented: $showAbout.value) { AboutView(close: { showAbout.value = false }) }
         .sheet(isPresented: $showLog.value) {
             VStack(spacing: 0) {
                 LogView()
@@ -176,6 +181,7 @@ struct PanelView: View {
     @EnvironmentObject var client: AGClient
     @ObservedObject var showSettings: Box<Bool>
     @ObservedObject var showLog: Box<Bool>
+    @ObservedObject var showAbout: Box<Bool>
     @AppStorage("darkMode") private var darkMode = false
 
     var body: some View {
@@ -200,7 +206,9 @@ struct PanelView: View {
             VStack(spacing: 2) {
                 ForEach(client.antennas) { AntennaRow(ant: $0) }
             }
-            .padding(.horizontal, 2).padding(.top, 2).padding(.bottom, 8)
+            .padding(.horizontal, 2).padding(.top, 2).padding(.bottom, 2)
+            Text("Version \(AppInfo.version)").font(.system(size: 10)).foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity).padding(.bottom, 8)
         }
     }
 
@@ -208,11 +216,11 @@ struct PanelView: View {
         HStack(spacing: 12) {
             Spacer()
             Menu {
-                Text("Antenna Genius \(AppInfo.version)")
-                Divider()
                 Button("Settings…") { showSettings.value = true }
                 Toggle("Dark mode", isOn: $darkMode)
                 Button("Protocol log…") { showLog.value = true }
+                Divider()
+                Button("About Antenna Genius…") { showAbout.value = true }
                 Divider()
                 Button("Disconnect") { client.autoConnect = false; client.disconnect() }
                 Button("Quit Antenna Genius") { AppDelegate.quit() }.keyboardShortcut("q")
@@ -879,5 +887,24 @@ struct OutputRelaysPage: View {
             }
             Spacer()
         }
+    }
+}
+
+struct AboutView: View {
+    let close: () -> Void
+
+    var body: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "antenna.radiowaves.left.and.right").font(.system(size: 38)).foregroundStyle(Color(red: 0, green: 0.55, blue: 0.1))
+            Text("Antenna Genius for macOS").font(.title3.bold())
+            Text("Version \(AppInfo.version)").foregroundStyle(.secondary)
+            Divider().padding(.vertical, 4)
+            Text("Created by \(AppInfo.author)")
+            Link(AppInfo.repoURL.absoluteString, destination: AppInfo.repoURL).font(.callout)
+            Text("An independent control app for the 4O3A Antenna Genius 8x2. Not affiliated with or endorsed by 4O3A Signature.")
+                .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center).padding(.top, 4)
+            Button("Close", action: close).keyboardShortcut(.cancelAction).padding(.top, 6)
+        }
+        .padding(24).frame(width: 340)
     }
 }
