@@ -23,7 +23,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Belt and braces: if the delegate hook above isn't honoured, quit when no real window remains.
-        NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) { _ in
+        NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) { note in
+            // Closing the main panel ends the app even if Settings or the log window is still open.
+            if (note.object as? NSWindow)?.title == "Antenna Genius" { AppDelegate.quit(); return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 let open = NSApp.windows.contains { $0.isVisible && !($0 is NSPanel) && $0.level == .normal }
                 if !open { AppDelegate.quit() }
@@ -53,5 +55,16 @@ struct AntennaGeniusApp: App {
                                 .onAppear { discovery.start() }
         }
         .windowResizability(.contentSize)
+
+        // Real windows (not sheets) so they can be moved, left open beside the panel, and resized.
+        Window("Antenna Genius Settings", id: "settings") {
+            SettingsWindowRoot().environmentObject(client)
+        }
+        .windowResizability(.contentMinSize)
+
+        Window("Protocol log", id: "log") {
+            LogWindowRoot().environmentObject(client)
+        }
+        .defaultSize(width: 680, height: 360)
     }
 }

@@ -81,15 +81,13 @@ enum Theme {
 struct ContentView: View {
     @EnvironmentObject var discovery: Discovery
     @EnvironmentObject var client: AGClient
-    @StateObject private var showSettings = Box(false)
-    @StateObject private var showLog = Box(false)
     @StateObject private var showAbout = Box(false)
     @AppStorage("appearance") private var appearance = Appearance.light.rawValue
 
     var body: some View {
         Group {
             if client.state == .connected {
-                PanelView(showSettings: showSettings, showLog: showLog, showAbout: showAbout)
+                PanelView(showAbout: showAbout)
             } else {
                 ConnectView()
             }
@@ -98,15 +96,7 @@ struct ContentView: View {
         .background(Theme.window)
         .preferredColorScheme(appearance == Appearance.light.rawValue ? .light : .dark)
         .id(appearance)   // rebuild so every view re-reads the theme
-        .sheet(isPresented: $showSettings.value) { SettingsView(close: { showSettings.value = false }) }
         .sheet(isPresented: $showAbout.value) { AboutView(close: { showAbout.value = false }) }
-        .sheet(isPresented: $showLog.value) {
-            VStack(spacing: 0) {
-                LogView()
-                HStack { Spacer(); Button("Close") { showLog.value = false }.keyboardShortcut(.cancelAction) }.padding(8)
-            }
-            .frame(width: 640, height: 340)
-        }
     }
 }
 
@@ -219,9 +209,8 @@ struct ConnectView: View {
 
 struct PanelView: View {
     @EnvironmentObject var client: AGClient
-    @ObservedObject var showSettings: Box<Bool>
-    @ObservedObject var showLog: Box<Bool>
     @ObservedObject var showAbout: Box<Bool>
+    @Environment(\.openWindow) private var openWindow
     @AppStorage("appearance") private var appearance = Appearance.light.rawValue
 
     var body: some View {
@@ -256,11 +245,11 @@ struct PanelView: View {
         HStack(spacing: 12) {
             Spacer()
             Menu {
-                Button("Settings…") { showSettings.value = true }
+                Button("Settings…") { openWindow(id: "settings") }
                 Picker("Appearance", selection: $appearance) {
                     ForEach(Appearance.allCases) { Text($0.label).tag($0.rawValue) }
                 }
-                Button("Protocol log…") { showLog.value = true }
+                Button("Protocol log…") { openWindow(id: "log") }
                 Divider()
                 Button("About Antenna Genius…") { showAbout.value = true }
                 Divider()
@@ -539,7 +528,7 @@ struct SettingsView: View {
                 Button { close() } label: { Label("Cancel", systemImage: "xmark") }.keyboardShortcut(.cancelAction)
             }.padding(10)
         }
-        .frame(width: 740, height: 520)
+        .frame(minWidth: 740, idealWidth: 760, minHeight: 600, idealHeight: 640)
         .onAppear { model.load(from: client) }
         .confirmationDialog("Apply network changes?", isPresented: $model.confirmNetwork, titleVisibility: .visible) {
             Button("Apply and reboot device", role: .destructive) {
@@ -1111,6 +1100,8 @@ struct FlexPage: View {
 struct ConnectorDiagram: View {
     struct Callout { let pin: Int; let label: String; let at: CGPoint }
     let callouts: [Callout]
+    /// Blank space to trim from the top when no callouts sit above the connector.
+    var cropTop: CGFloat = 0
 
     private static let w: CGFloat = 470, h: CGFloat = 230
     /// Pin centre in the diagram's own coordinates.
@@ -1163,6 +1154,9 @@ struct ConnectorDiagram: View {
             }
         }
         .frame(width: Self.w, height: Self.h)
+        .offset(y: -cropTop)
+        .frame(width: Self.w, height: Self.h - cropTop, alignment: .topLeading)
+        .clipped()
     }
 }
 
@@ -1185,7 +1179,7 @@ struct BCDPage: View {
                     .init(pin: 13, label: "Band C", at: CGPoint(x: 255, y: 208)),
                     .init(pin: 12, label: "Band B", at: CGPoint(x: 325, y: 208)),
                     .init(pin: 11, label: "Band A", at: CGPoint(x: 395, y: 208)),
-                ]).frame(maxWidth: .infinity)
+                ], cropTop: 60).frame(maxWidth: .infinity)
                 Text("This is the BCD data table:").font(.callout)
                 Grid(horizontalSpacing: 0, verticalSpacing: 0) {
                     GridRow {
@@ -1238,5 +1232,31 @@ struct P2PPage: View {
                     .font(.caption).foregroundStyle(.secondary)
             }.padding(12)
         }
+    }
+}
+
+// MARK: - Window roots (Settings and the protocol log are windows, so they can be moved)
+
+struct SettingsWindowRoot: View {
+    @Environment(\.dismissWindow) private var dismissWindow
+    @AppStorage("appearance") private var appearance = Appearance.light.rawValue
+
+    var body: some View {
+        SettingsView(close: { dismissWindow(id: "settings") })
+            .background(Theme.window)
+            .preferredColorScheme(appearance == Appearance.light.rawValue ? .light : .dark)
+            .id(appearance)
+    }
+}
+
+struct LogWindowRoot: View {
+    @AppStorage("appearance") private var appearance = Appearance.light.rawValue
+
+    var body: some View {
+        LogView()
+            .frame(minWidth: 480, minHeight: 200)
+            .background(Theme.window)
+            .preferredColorScheme(appearance == Appearance.light.rawValue ? .light : .dark)
+            .id(appearance)
     }
 }

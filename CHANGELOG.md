@@ -1,5 +1,16 @@
 # Changelog
 
+## 26.10.7
+
+### Enhancements
+
+Settings and the protocol log now open as their own windows instead of sheets, so they can be moved, resized and left open beside the main panel; Settings is also taller so the longer pages fit. Closing the main panel still quits the app, even if one of these windows is open
+
+### Bug Fixes
+
+Settings could not be moved because it was a sheet attached to the main window; it is now a normal window
+The BCD page did not fit: a large blank area above the connector diagram pushed the data table down so its last rows were cut off; the diagram is trimmed and the whole page is visible
+
 ## 26.10.6
 
 ### Enhancements
