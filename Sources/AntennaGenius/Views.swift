@@ -16,7 +16,25 @@ final class Box<T>: ObservableObject {
 
 // MARK: - Theme (mirrors the Windows panel: dark slate with a blue selection)
 
+/// Light, dark, or a high-contrast theme (black, bold white, bright yellow / cyan, larger controls) for low vision.
+enum Appearance: String, CaseIterable, Identifiable {
+    case light, dark, highContrast
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .light: return "Light"
+        case .dark: return "Dark"
+        case .highContrast: return "High contrast (low vision)"
+        }
+    }
+    static var current: Appearance {
+        Appearance(rawValue: UserDefaults.standard.string(forKey: "appearance") ?? "") ?? .light
+    }
+}
+
 enum Theme {
+    private static var hc: Bool { Appearance.current == .highContrast }
+
     /// Color that resolves per appearance (the root view forces light or dark from the user's setting).
     private static func dyn(_ light: (Double, Double, Double), _ dark: (Double, Double, Double)) -> Color {
         Color(nsColor: NSColor(name: nil) { ap in
@@ -27,18 +45,35 @@ enum Theme {
     private static func grad(_ top: Color, _ bottom: Color) -> LinearGradient {
         LinearGradient(colors: [top, bottom], startPoint: .top, endPoint: .bottom)
     }
+    private static func solid(_ c: Color) -> LinearGradient { grad(c, c) }
 
-    static let window = dyn((0.94, 0.95, 0.96), (0.14, 0.15, 0.17))
-    static let chrome = dyn((0.85, 0.87, 0.90), (0.20, 0.21, 0.24))
-    static let text = dyn((0.08, 0.10, 0.13), (1, 1, 1))
-    static let row = grad(dyn((0.98, 0.98, 0.99), (0.25, 0.30, 0.36)), dyn((0.86, 0.89, 0.93), (0.18, 0.22, 0.27)))
-    static let button = grad(dyn((1, 1, 1), (0.34, 0.35, 0.38)), dyn((0.85, 0.86, 0.88), (0.16, 0.17, 0.19)))
-    /// Per-radio selection colours, as in the Windows panel: A is green, B is blue.
-    static let radioA = grad(Color(red: 0.10, green: 0.72, blue: 0.20), Color(red: 0.0, green: 0.50, blue: 0.08))
-    static let radioB = grad(Color(red: 0.25, green: 0.60, blue: 1.0), Color(red: 0.05, green: 0.38, blue: 0.85))
+    /// Text and control sizes scale up in high contrast.
+    static var scale: CGFloat { hc ? 1.35 : 1 }
+    static func fs(_ v: CGFloat) -> CGFloat { v * scale }
+    static var lineWidth: CGFloat { hc ? 2 : 1 }
+
+    static var window: Color { hc ? .black : dyn((0.94, 0.95, 0.96), (0.14, 0.15, 0.17)) }
+    static var chrome: Color { hc ? Color(white: 0.12) : dyn((0.85, 0.87, 0.90), (0.20, 0.21, 0.24)) }
+    static var text: Color { hc ? .white : dyn((0.08, 0.10, 0.13), (1, 1, 1)) }
+    static var onSelected: Color { hc ? .black : .white }
+    static var row: LinearGradient {
+        hc ? solid(.black) : grad(dyn((0.98, 0.98, 0.99), (0.25, 0.30, 0.36)), dyn((0.86, 0.89, 0.93), (0.18, 0.22, 0.27)))
+    }
+    static var button: LinearGradient {
+        hc ? solid(Color(white: 0.18)) : grad(dyn((1, 1, 1), (0.34, 0.35, 0.38)), dyn((0.85, 0.86, 0.88), (0.16, 0.17, 0.19)))
+    }
+    /// Per-radio selection colours, as in the Windows panel: A is green, B is blue (yellow and cyan in high contrast).
+    static var radioA: LinearGradient {
+        hc ? solid(Color(red: 1.0, green: 0.92, blue: 0.0)) : grad(Color(red: 0.10, green: 0.72, blue: 0.20), Color(red: 0.0, green: 0.50, blue: 0.08))
+    }
+    static var radioB: LinearGradient {
+        hc ? solid(Color(red: 0.0, green: 0.85, blue: 1.0)) : grad(Color(red: 0.25, green: 0.60, blue: 1.0), Color(red: 0.05, green: 0.38, blue: 0.85))
+    }
     static func selected(port: Int) -> LinearGradient { port == 1 ? radioA : radioB }
-    static let transmit = grad(Color(red: 1.0, green: 0.38, blue: 0.32), Color(red: 0.75, green: 0.12, blue: 0.10))
-    static let edge = dyn((0.62, 0.65, 0.70), (0.0, 0.0, 0.0))
+    static var transmit: LinearGradient {
+        hc ? solid(Color(red: 1.0, green: 0.35, blue: 0.0)) : grad(Color(red: 1.0, green: 0.38, blue: 0.32), Color(red: 0.75, green: 0.12, blue: 0.10))
+    }
+    static var edge: Color { hc ? .white : dyn((0.62, 0.65, 0.70), (0.0, 0.0, 0.0)) }
 }
 
 // MARK: - Root
@@ -49,7 +84,7 @@ struct ContentView: View {
     @StateObject private var showSettings = Box(false)
     @StateObject private var showLog = Box(false)
     @StateObject private var showAbout = Box(false)
-    @AppStorage("darkMode") private var darkMode = false
+    @AppStorage("appearance") private var appearance = Appearance.light.rawValue
 
     var body: some View {
         Group {
@@ -59,9 +94,10 @@ struct ContentView: View {
                 ConnectView()
             }
         }
-        .frame(width: client.state == .connected ? 230 : 320)
+        .frame(width: client.state == .connected ? Theme.fs(230) : 320)
         .background(Theme.window)
-        .preferredColorScheme(darkMode ? .dark : .light)
+        .preferredColorScheme(appearance == Appearance.light.rawValue ? .light : .dark)
+        .id(appearance)   // rebuild so every view re-reads the theme
         .sheet(isPresented: $showSettings.value) { SettingsView(close: { showSettings.value = false }) }
         .sheet(isPresented: $showAbout.value) { AboutView(close: { showAbout.value = false }) }
         .sheet(isPresented: $showLog.value) {
@@ -79,7 +115,7 @@ struct ContentView: View {
 struct ConnectView: View {
     @EnvironmentObject var discovery: Discovery
     @EnvironmentObject var client: AGClient
-    @AppStorage("darkMode") private var darkMode = false
+    @AppStorage("appearance") private var appearance = Appearance.light.rawValue
     @AppStorage("lastIP") private var lastIP = ""
     @StateObject private var waited = Box(false)
     @StateObject private var typedIP = Box("")
@@ -88,8 +124,12 @@ struct ConnectView: View {
         VStack(spacing: 12) {
             HStack {
                 Spacer()
-                Button { darkMode.toggle() } label: { Image(systemName: darkMode ? "sun.max" : "moon") }
-                    .buttonStyle(.plain).help(darkMode ? "Switch to light mode" : "Switch to dark mode")
+                Menu {
+                    Picker("Appearance", selection: $appearance) {
+                        ForEach(Appearance.allCases) { Text($0.label).tag($0.rawValue) }
+                    }.pickerStyle(.inline)
+                } label: { Image(systemName: "circle.lefthalf.filled") }
+                    .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().help("Appearance")
             }
             Text("Antenna Genius").font(.headline)
             Text("Version \(AppInfo.version)").font(.caption2).foregroundStyle(.secondary)
@@ -106,7 +146,7 @@ struct ConnectView: View {
                         }
                         .frame(maxWidth: .infinity).padding(.vertical, 8)
                         .background(Theme.row, in: RoundedRectangle(cornerRadius: 4))
-                        .overlay(RoundedRectangle(cornerRadius: 4).stroke(Theme.edge))
+                        .overlay(RoundedRectangle(cornerRadius: 4).stroke(Theme.edge, lineWidth: Theme.lineWidth))
                     }
                     .buttonStyle(.plain)
                     .disabled(client.state == .connecting)
@@ -182,7 +222,7 @@ struct PanelView: View {
     @ObservedObject var showSettings: Box<Bool>
     @ObservedObject var showLog: Box<Bool>
     @ObservedObject var showAbout: Box<Bool>
-    @AppStorage("darkMode") private var darkMode = false
+    @AppStorage("appearance") private var appearance = Appearance.light.rawValue
 
     var body: some View {
         VStack(spacing: 0) {
@@ -190,14 +230,14 @@ struct PanelView: View {
             if let err = client.lastError {
                 HStack(alignment: .top, spacing: 6) {
                     Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                    Text(err).font(.caption).fixedSize(horizontal: false, vertical: true)
+                    Text(err).font(.system(size: Theme.fs(11))).fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
                     Button { client.lastError = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain)
                 }
                 .padding(6).background(Color.orange.opacity(0.18))
             }
             Text(client.deviceName.isEmpty ? (client.connectedDevice?.name ?? "Antenna Genius") : client.deviceName)
-                .font(.system(size: 15, weight: .bold)).frame(maxWidth: .infinity).padding(.vertical, 6)
+                .font(.system(size: Theme.fs(15), weight: .bold)).frame(maxWidth: .infinity).padding(.vertical, 6)
                 .background(Theme.chrome)
             HStack(spacing: 2) {
                 ForEach(client.ports, id: \.id) { SourceBandHeader(port: $0) }
@@ -207,7 +247,7 @@ struct PanelView: View {
                 ForEach(client.antennas) { AntennaRow(ant: $0) }
             }
             .padding(.horizontal, 2).padding(.top, 2).padding(.bottom, 2)
-            Text("Version \(AppInfo.version)").font(.system(size: 10)).foregroundStyle(.secondary)
+            Text("Version \(AppInfo.version)").font(.system(size: Theme.fs(10))).foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity).padding(.bottom, 8)
         }
     }
@@ -217,7 +257,9 @@ struct PanelView: View {
             Spacer()
             Menu {
                 Button("Settings…") { showSettings.value = true }
-                Toggle("Dark mode", isOn: $darkMode)
+                Picker("Appearance", selection: $appearance) {
+                    ForEach(Appearance.allCases) { Text($0.label).tag($0.rawValue) }
+                }
                 Button("Protocol log…") { showLog.value = true }
                 Divider()
                 Button("About Antenna Genius…") { showAbout.value = true }
@@ -228,9 +270,8 @@ struct PanelView: View {
                 Image(systemName: "gearshape.fill").foregroundStyle(.gray)
             }
             .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-            Image(systemName: "chevron.down").foregroundStyle(.gray)
         }
-        .font(.system(size: 13, weight: .bold))
+        .font(.system(size: Theme.fs(13), weight: .bold))
         .padding(.horizontal, 8).padding(.vertical, 5)
         .background(Theme.chrome.opacity(0.7))
     }
@@ -239,10 +280,10 @@ struct PanelView: View {
 struct PanelButton: View {
     let title: String
     var body: some View {
-        Text(title).font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.text)
-            .frame(maxWidth: .infinity, minHeight: 26)
+        Text(title).font(.system(size: Theme.fs(12), weight: .semibold)).foregroundStyle(Theme.text)
+            .frame(maxWidth: .infinity, minHeight: Theme.fs(26))
             .background(Theme.button, in: RoundedRectangle(cornerRadius: 3))
-            .overlay(RoundedRectangle(cornerRadius: 3).stroke(Theme.edge))
+            .overlay(RoundedRectangle(cornerRadius: 3).stroke(Theme.edge, lineWidth: Theme.lineWidth))
     }
 }
 
@@ -264,7 +305,7 @@ struct SourceBandHeader: View {
             Button { picking.value = true } label: { PanelButton(title: bandName) }
                 .buttonStyle(.plain)
                 .disabled(port.source != "MANUAL")
-                .opacity(port.source == "MANUAL" ? 1 : 0.6)
+                .opacity(port.source == "MANUAL" ? 1 : (Theme.scale > 1 ? 0.8 : 0.6))
                 .popover(isPresented: $picking.value, arrowEdge: .bottom) {
                     ScrollView {
                         VStack(spacing: 0) {
@@ -298,8 +339,8 @@ struct AntennaRow: View {
     /// Background for one radio's share of the name cell (transmit overrides the radio colour).
     private func fill(_ p: PortState?) -> LinearGradient? {
         guard let p else { return nil }
-        if p.txant == ant.id { return Theme.transmit }
-        if p.rxant == ant.id { return Theme.selected(port: p.id) }
+        if p.tx && p.txant == ant.id { return Theme.transmit }   // red only while actually transmitting
+        if p.rxant == ant.id || p.txant == ant.id { return Theme.selected(port: p.id) }
         return nil
     }
 
@@ -316,11 +357,11 @@ struct AntennaRow: View {
                     Rectangle().fill((a ?? b)!)
                 }
                 Text(ant.name)
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(a != nil || b != nil ? Color.white : Theme.text).lineLimit(1)
+                    .font(.system(size: Theme.fs(14), weight: .medium))
+                    .foregroundStyle(a != nil || b != nil ? Theme.onSelected : Theme.text).lineLimit(1)
             }
-            .frame(maxWidth: .infinity, minHeight: 34, maxHeight: 34)
-            .overlay(Rectangle().stroke(Theme.edge))
+            .frame(maxWidth: .infinity, minHeight: Theme.fs(34), maxHeight: Theme.fs(34))
+            .overlay(Rectangle().stroke(Theme.edge, lineWidth: Theme.lineWidth))
             RadioButton(letter: "B", ant: ant, port: port(2), heldBy: heldBy(other: 2))
         }
     }
@@ -342,10 +383,11 @@ struct RadioButton: View {
 
     private var rx: Bool { port?.rxant == ant.id }
     private var tx: Bool { port?.txant == ant.id }
+    private var transmitting: Bool { (port?.tx ?? false) && tx }
 
     private var background: LinearGradient {
-        if tx { return Theme.transmit }
-        if rx, let port { return Theme.selected(port: port.id) }
+        if transmitting { return Theme.transmit }
+        if (rx || tx), let port { return Theme.selected(port: port.id) }
         return Theme.row
     }
 
@@ -355,11 +397,11 @@ struct RadioButton: View {
             if rx || tx { client.clearAntenna(port: port.id) }
             else { client.selectAntenna(port: port.id, antenna: ant.id) }
         } label: {
-            Text(letter).font(.system(size: 12, weight: .semibold)).foregroundStyle(rx || tx ? Color.white : Theme.text)
-                .frame(width: 24, height: 34)
+            Text(letter).font(.system(size: Theme.fs(12), weight: .semibold)).foregroundStyle(rx || tx ? Theme.onSelected : Theme.text)
+                .frame(width: Theme.fs(24), height: Theme.fs(34))
                 .background(background)
-                .overlay(Rectangle().stroke(Theme.edge))
-                .opacity(heldBy != nil && !rx && !tx ? 0.45 : 1)
+                .overlay(Rectangle().stroke(Theme.edge, lineWidth: Theme.lineWidth))
+                .opacity(heldBy != nil && !rx && !tx ? (Theme.scale > 1 ? 0.75 : 0.45) : 1)
         }
         .buttonStyle(.plain)
         .help(rx || tx ? "Release Radio \(letter)"
@@ -389,17 +431,20 @@ struct LogView: View {
 // MARK: - Settings (laid out like the Windows app: menu on the left, green page header, Save / Cancel)
 
 enum SettingsPage: String, CaseIterable, Identifiable {
-    case info = "Basic information", antennas = "Antennas", outputs = "Output relays", bands = "Bands", network = "Network settings", stack = "Stack settings", advanced = "Advanced options"
+    case info = "Basic information", antennas = "Antennas", outputs = "Output relays", bands = "Bands", flex = "FlexRadio", bcd = "BCD", p2p = "P2P", network = "Network settings", stack = "Stack settings", advanced = "Advanced options"
     var id: String { rawValue }
-}
-
-final class BandDraft: ObservableObject {
-    @Published var id = 1
-    @Published var name = ""
-    @Published var start = ""
-    @Published var stop = ""
-    func load(_ b: BandInfo) { id = b.id; name = b.name; start = b.freqStart; stop = b.freqStop }
-    var info: BandInfo { BandInfo(id: id, name: name, freqStart: start, freqStop: stop) }
+    /// Sub-items shown indented under "Bands".
+    var isSub: Bool { self == .flex || self == .bcd || self == .p2p }
+    /// Green header text; the FlexRadio page draws its own per-port headers.
+    var header: String? {
+        switch self {
+        case .flex: return nil
+        case .bands: return "Bands configuration"
+        case .bcd: return "Band source via BCD"
+        case .p2p: return "Band source via Pin to Port"
+        default: return rawValue
+        }
+    }
 }
 
 final class SettingsModel: ObservableObject {
@@ -418,7 +463,8 @@ final class SettingsModel: ObservableObject {
     @Published var validation: String?
     @Published var antennas: [AntennaInfo] = []
     @Published var editingAntenna: Int?
-    let band = BandDraft()
+    @Published var bands: [BandInfo] = []
+    @Published var flex: [Int: FlexPortConfig] = [:]
     private var loaded = false
 
     @MainActor func load(from c: AGClient) {
@@ -432,7 +478,8 @@ final class SettingsModel: ObservableObject {
         selectedGroup = c.groups.first?.id ?? 0
         net = c.network ?? NetworkConfig()
         antennas = c.antennas
-        if let b = c.bands.first(where: { $0.id != 0 }) { band.load(b) }
+        bands = c.bands
+        flex = c.flexConfigs
     }
 }
 
@@ -449,8 +496,8 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(SettingsPage.allCases) { p in
                         Button { model.page = p } label: {
-                            Text(p.rawValue).fontWeight(.semibold).frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal, 8).padding(.vertical, 7)
+                            Text(p.rawValue).fontWeight(p.isSub ? .regular : .semibold).frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.leading, p.isSub ? 22 : 8).padding(.trailing, 8).padding(.vertical, p.isSub ? 4 : 7)
                                 .background(model.page == p ? Color.yellow.opacity(0.28) : .clear)
                         }.buttonStyle(.plain)
                     }
@@ -459,14 +506,20 @@ struct SettingsView: View {
                 .frame(width: 190)
                 Divider()
                 VStack(spacing: 0) {
-                    Text(model.page.rawValue).foregroundStyle(.white).fontWeight(.medium)
-                        .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 10).padding(.vertical, 5)
-                        .background(Color(red: 0.0, green: 0.50, blue: 0.10))
+                    if let header = model.page.header {
+                        Text(header)
+                            .foregroundStyle(.white).fontWeight(.medium)
+                            .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 10).padding(.vertical, 5)
+                            .background(Color(red: 0.0, green: 0.50, blue: 0.10))
+                    }
                     Group {
                         switch model.page {
                         case .info: InfoPage(model: model)
                         case .antennas: AntennaSettingsPage(model: model)
-                        case .bands: BandSettingsPage(draft: model.band)
+                        case .bands: BandSettingsPage(model: model)
+                        case .flex: FlexPage(model: model)
+                        case .bcd: BCDPage()
+                        case .p2p: P2PPage()
                         case .network: NetworkPage(model: model)
                         case .outputs: OutputRelaysPage(model: model)
                         case .stack: StackPage(model: model)
@@ -474,7 +527,7 @@ struct SettingsView: View {
                         }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    .overlay(Rectangle().stroke(Theme.edge))
+                    .overlay(Rectangle().stroke(Theme.edge, lineWidth: Theme.lineWidth))
                     .padding(8)
                 }
             }
@@ -518,6 +571,9 @@ struct SettingsView: View {
         }
         for g in model.groups where client.groups.first(where: { $0.id == g.id }).map({ $0 != g }) ?? g.inUse { client.saveGroup(g) }
         for o in model.outputs where client.outputs.first(where: { $0.id == o.id }).map({ $0 != o }) ?? o.inUse { client.saveOutput(o) }
+        for (port, cfg) in model.flex where client.flexConfigs[port].map({ $0 != cfg }) ?? false {
+            client.saveFlex(port: port, cfg)
+        }
         if model.stack != client.stack {
             if model.stack.inUse && model.stack.serial.isEmpty {
                 model.validation = "Choose the Antenna Genius to stack with."; model.page = .stack; return
@@ -528,8 +584,21 @@ struct SettingsView: View {
         for a in model.antennas where client.antennas.first(where: { $0.id == a.id }).map({ $0 != a }) ?? false {
             client.saveAntenna(a)
         }
-        if let b = client.bands.first(where: { $0.id == model.band.id }), b != model.band.info {
-            client.saveBand(model.band.info)
+        let changedBands = model.bands.filter { b in b.id != 0 && client.bands.first(where: { $0.id == b.id }).map { $0 != b } ?? false }
+        for b in changedBands {
+            guard let lo = Double(b.freqStart), let hi = Double(b.freqStop), lo >= 0, hi >= lo else {
+                model.validation = "Band \(b.id) (\(b.name)): start and stop must be numbers in MHz, with stop not below start."
+                model.page = .bands
+                return
+            }
+            if b.name.trimmingCharacters(in: .whitespaces).isEmpty {
+                model.validation = "Band \(b.id) needs a name."; model.page = .bands; return
+            }
+        }
+        for var b in changedBands {
+            b.freqStart = String(format: "%.6f", Double(b.freqStart) ?? 0)
+            b.freqStop = String(format: "%.6f", Double(b.freqStop) ?? 0)
+            client.saveBand(b)
         }
         if let cur = client.network, cur != n {
             let reboots = cur.dhcp != n.dhcp || (!n.dhcp && (cur.address != n.address || cur.netmask != n.netmask || cur.gateway != n.gateway))
@@ -613,7 +682,7 @@ struct AntennaSettingsPage: View {
                             .buttonStyle(.plain).help("Choose RX, TX and in-band bands")
                         }
                         .frame(width: 330, height: 24)
-                        .overlay(Rectangle().stroke(Theme.edge))
+                        .overlay(Rectangle().stroke(Theme.edge, lineWidth: Theme.lineWidth))
                     }
                 }
             }
@@ -683,22 +752,32 @@ struct AntennaBandsSheet: View {
     }
 }
 
+/// Bands configuration, like the Windows app: every band's name and frequency span in MHz.
 struct BandSettingsPage: View {
-    @EnvironmentObject var client: AGClient
-    @ObservedObject var draft: BandDraft
+    @ObservedObject var model: SettingsModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Picker("Band", selection: Binding(get: { draft.id }, set: { id in
-                if let b = client.bands.first(where: { $0.id == id }) { draft.load(b) }
-            })) {
-                ForEach(client.bands.filter { $0.id != 0 }) { Text($0.name).tag($0.id) }
+        ScrollView {
+            Grid(alignment: .leading, horizontalSpacing: 6, verticalSpacing: 4) {
+                GridRow {
+                    Text("")
+                    Text("Band name:").fontWeight(.bold)
+                    Text("Frequency span (MHz):").fontWeight(.bold).gridCellColumns(2)
+                }
+                ForEach(model.bands.indices, id: \.self) { i in
+                    let none = model.bands[i].id == 0
+                    GridRow {
+                        Text(none ? "" : "\(model.bands[i].id)").frame(width: 22, alignment: .trailing)
+                        TextField("", text: $model.bands[i].name).frame(width: 120)
+                        TextField("", text: $model.bands[i].freqStart).frame(width: 110)
+                        TextField("", text: $model.bands[i].freqStop).frame(width: 110)
+                    }
+                    .textFieldStyle(.roundedBorder)
+                    .disabled(none).opacity(none ? 0.5 : 1)
+                }
             }
-            TextField("Name", text: $draft.name).textFieldStyle(.roundedBorder)
-            TextField("Start (MHz)", text: $draft.start).textFieldStyle(.roundedBorder)
-            TextField("Stop (MHz)", text: $draft.stop).textFieldStyle(.roundedBorder)
-            Spacer()
-        }.padding(12)
+            .padding(12)
+        }
     }
 }
 
@@ -937,7 +1016,7 @@ struct OutputRelaysPage: View {
             ForEach(0..<8, id: \.self) { i in
                 VStack(spacing: 2) {
                     Circle().fill(client.relayState & (1 << i) != 0 ? Color.green : Color.gray.opacity(0.35))
-                        .frame(width: 14, height: 14).overlay(Circle().stroke(Theme.edge))
+                        .frame(width: 14, height: 14).overlay(Circle().stroke(Theme.edge, lineWidth: Theme.lineWidth))
                     Text("\(i + 1)").font(.caption2).foregroundStyle(.secondary)
                 }
             }
@@ -962,5 +1041,202 @@ struct AboutView: View {
             Button("Close", action: close).keyboardShortcut(.cancelAction).padding(.top, 6)
         }
         .padding(24).frame(width: 340)
+    }
+}
+
+/// FlexRadio integration, one box per radio port, like the Windows app.
+struct FlexPage: View {
+    @EnvironmentObject var client: AGClient
+    @ObservedObject var model: SettingsModel
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 8) {
+                ForEach(1...max(client.ports.count, 1), id: \.self) { port in
+                    portBox(port)
+                }
+            }.padding(8)
+        }
+    }
+
+    /// Radios the unit can see, plus the configured serial if that radio isn't answering right now.
+    private func choices(_ serial: String) -> [(serial: String, label: String)] {
+        var list = client.flexRadios.map { r -> (serial: String, label: String) in
+            let who = [r.nickname, r.callsign].filter { !$0.isEmpty }.joined(separator: " · ")
+            return (r.serial, who.isEmpty ? r.serial : "\(r.serial) — \(who)")
+        }
+        if !serial.isEmpty, !list.contains(where: { $0.serial == serial }) { list.append((serial, serial)) }
+        return list
+    }
+
+    private func portBox(_ port: Int) -> some View {
+        let cfg = Binding(get: { model.flex[port] ?? FlexPortConfig() }, set: { model.flex[port] = $0 })
+        return VStack(spacing: 0) {
+            Text("FlexRadio Integration - Port \(port == 1 ? "A" : "B")")
+                .foregroundStyle(.white).fontWeight(.medium)
+                .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 10).padding(.vertical, 5)
+                .background(Color(red: 0.0, green: 0.50, blue: 0.10))
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Serial number:").fontWeight(.bold)
+                Picker("", selection: cfg.serial) {
+                    Text("").tag("")
+                    ForEach(choices(cfg.wrappedValue.serial), id: \.serial) { Text($0.label).tag($0.serial) }
+                }.labelsHidden().frame(maxWidth: .infinity)
+                HStack(spacing: 20) {
+                    HStack {
+                        Text("Antenna:").fontWeight(.bold)
+                        Picker("", selection: cfg.ant) {
+                            ForEach(["ANT1", "ANT2", "XVRT"], id: \.self) { Text($0).tag($0) }
+                        }.labelsHidden().frame(width: 95)
+                    }
+                    HStack {
+                        Text("PTT:").fontWeight(.bold)
+                        Picker("", selection: cfg.ptt) {
+                            ForEach(["LAN", "RCA"], id: \.self) { Text($0).tag($0) }
+                        }.labelsHidden().frame(width: 85)
+                    }
+                    Spacer()
+                }
+            }
+            .padding(10)
+        }
+        .overlay(Rectangle().stroke(Theme.edge, lineWidth: Theme.lineWidth))
+    }
+}
+
+// MARK: - Band source pinout pages (information only, like the Windows app)
+
+/// The device's 15-pin VGA-style connector as seen looking at it: pins 5-1 across the top, 10-6 in the middle,
+/// 15-11 along the bottom. Callouts draw a labelled box and a line to each pin that is used.
+struct ConnectorDiagram: View {
+    struct Callout { let pin: Int; let label: String; let at: CGPoint }
+    let callouts: [Callout]
+
+    private static let w: CGFloat = 470, h: CGFloat = 230
+    /// Pin centre in the diagram's own coordinates.
+    static func position(of pin: Int) -> CGPoint {
+        let cx: CGFloat = 235, dx: CGFloat = 30
+        switch pin {
+        case 1...5:  return CGPoint(x: cx + CGFloat(3 - pin) * dx, y: 98)
+        case 6...10: return CGPoint(x: cx - 15 + CGFloat(8 - pin) * dx, y: 123)
+        default:     return CGPoint(x: cx + CGFloat(13 - pin) * dx, y: 148)
+        }
+    }
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            Canvas { ctx, _ in
+                // Connector shell and mounting holes
+                var shell = Path()
+                shell.addRoundedRect(in: CGRect(x: 125, y: 76, width: 220, height: 94), cornerSize: CGSize(width: 10, height: 10))
+                ctx.stroke(shell, with: .color(Theme.text), lineWidth: 2)
+                for x in [100.0, 370.0] {
+                    ctx.stroke(Path(ellipseIn: CGRect(x: x - 11, y: 112, width: 22, height: 22)), with: .color(Theme.text), lineWidth: 2)
+                }
+                var d = Path()   // the D-shaped plug
+                d.move(to: CGPoint(x: 150, y: 84)); d.addLine(to: CGPoint(x: 320, y: 84))
+                d.addLine(to: CGPoint(x: 308, y: 162)); d.addLine(to: CGPoint(x: 162, y: 162)); d.closeSubpath()
+                ctx.stroke(d, with: .color(Theme.text), lineWidth: 1.5)
+                // Pins
+                let used = Set(callouts.map(\.pin))
+                for pin in 1...15 {
+                    let c = Self.position(of: pin)
+                    let r = CGRect(x: c.x - 8, y: c.y - 8, width: 16, height: 16)
+                    ctx.fill(Path(ellipseIn: r), with: .color(used.contains(pin) ? Color.accentColor.opacity(0.35) : Theme.window))
+                    ctx.stroke(Path(ellipseIn: r), with: .color(Theme.text), lineWidth: used.contains(pin) ? 2 : 1)
+                }
+                // Leader lines
+                for c in callouts {
+                    var l = Path(); l.move(to: Self.position(of: c.pin)); l.addLine(to: c.at)
+                    ctx.stroke(l, with: .color(Theme.text.opacity(0.7)), lineWidth: 1)
+                }
+            }
+            ForEach(1...15, id: \.self) { pin in
+                Text("\(pin)").font(.system(size: 8, weight: .bold)).foregroundStyle(Theme.text)
+                    .position(Self.position(of: pin))
+            }
+            ForEach(callouts.indices, id: \.self) { i in
+                Text(callouts[i].label).font(.system(size: 11)).foregroundStyle(.black)
+                    .padding(.horizontal, 7).padding(.vertical, 3)
+                    .background(Color.white).overlay(Rectangle().stroke(Color.black, lineWidth: 1))
+                    .position(callouts[i].at)
+            }
+        }
+        .frame(width: Self.w, height: Self.h)
+    }
+}
+
+struct BCDPage: View {
+    /// (band, MHz as printed in the manual, HEX code) — Band A..D are the four low bits of the code, H = 1.
+    private let bands: [(name: String, mhz: String, code: Int)] = [
+        ("160M", "1.8", 1), ("80M", "3.5", 2), ("40M", "7", 3), ("30M", "10", 4), ("20M", "14", 5),
+        ("17M", "18", 6), ("15M", "21", 7), ("12M", "24", 8), ("10M", "28", 9), ("6M", "50", 10), ("None", "", 0)
+    ]
+    private func level(_ code: Int, _ bit: Int) -> String { code & (1 << bit) != 0 ? "H" : "L" }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("This is the pinout when looking at the device connector:").font(.callout)
+                // Pins 15 (GND), 14 (Band D), 13 (Band C), 12 (Band B), 11 (Band A) along the bottom row.
+                ConnectorDiagram(callouts: [
+                    .init(pin: 15, label: "GND", at: CGPoint(x: 115, y: 208)),
+                    .init(pin: 14, label: "Band D", at: CGPoint(x: 185, y: 208)),
+                    .init(pin: 13, label: "Band C", at: CGPoint(x: 255, y: 208)),
+                    .init(pin: 12, label: "Band B", at: CGPoint(x: 325, y: 208)),
+                    .init(pin: 11, label: "Band A", at: CGPoint(x: 395, y: 208)),
+                ]).frame(maxWidth: .infinity)
+                Text("This is the BCD data table:").font(.callout)
+                Grid(horizontalSpacing: 0, verticalSpacing: 0) {
+                    GridRow {
+                        Text("Band").bold().frame(width: 70, alignment: .leading)
+                        ForEach(bands, id: \.name) { Text($0.name).bold().frame(width: 40) }
+                    }
+                    GridRow {
+                        Text("Frequency").frame(width: 70, alignment: .leading)
+                        ForEach(bands, id: \.name) { Text($0.mhz).frame(width: 40) }
+                    }
+                    Divider().gridCellUnsizedAxes(.horizontal).gridCellColumns(12)
+                    ForEach([("Band A", 0), ("Band B", 1), ("Band C", 2), ("Band D", 3)], id: \.0) { row in
+                        GridRow {
+                            Text(row.0).frame(width: 70, alignment: .leading)
+                            ForEach(bands, id: \.name) { Text(level($0.code, row.1)).fontWeight(.semibold).frame(width: 40) }
+                        }
+                    }
+                    Divider().gridCellUnsizedAxes(.horizontal).gridCellColumns(12)
+                    GridRow {
+                        Text("HEX code").frame(width: 70, alignment: .leading)
+                        ForEach(bands, id: \.name) { Text(String($0.code, radix: 16, uppercase: true)).frame(width: 40) }
+                    }
+                }
+                .font(.system(size: 12, design: .monospaced))
+                Text("It is not possible to select the 60M band through BCD. Pin numbers are as printed in the 4O3A Antenna Genius user manual.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }.padding(12)
+        }
+    }
+}
+
+struct P2PPage: View {
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("This is the pinout when looking at the device connector:").font(.callout)
+                // Pin n selects Antenna n (1-8); pin 15 is GND.
+                ConnectorDiagram(callouts: [
+                    .init(pin: 5, label: "Antenna 5", at: CGPoint(x: 95, y: 25)),
+                    .init(pin: 4, label: "Antenna 4", at: CGPoint(x: 170, y: 25)),
+                    .init(pin: 3, label: "Antenna 3", at: CGPoint(x: 245, y: 25)),
+                    .init(pin: 2, label: "Antenna 2", at: CGPoint(x: 320, y: 25)),
+                    .init(pin: 1, label: "Antenna 1", at: CGPoint(x: 395, y: 25)),
+                    .init(pin: 6, label: "Antenna 6", at: CGPoint(x: 420, y: 75)),
+                    .init(pin: 7, label: "Antenna 7", at: CGPoint(x: 420, y: 118)),
+                    .init(pin: 8, label: "Antenna 8", at: CGPoint(x: 420, y: 161)),
+                    .init(pin: 15, label: "GND", at: CGPoint(x: 125, y: 208)),
+                ]).frame(maxWidth: .infinity)
+                Text("Applying +12 V to a pin selects that antenna for the port, regardless of band. Pin numbers are as printed in the 4O3A Antenna Genius user manual.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }.padding(12)
+        }
     }
 }

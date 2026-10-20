@@ -207,3 +207,26 @@ struct OutputDef: Identifiable, Equatable {
         trx = kv["trx"] == "1"
     }
 }
+
+/// Per-port FlexRadio integration: which radio the port is bound to, which antenna jack it uses and where PTT comes from.
+struct FlexPortConfig: Equatable {
+    var serial = ""
+    var ant = "ANT1"     // ANT1, ANT2 or XVRT
+    var ptt = "LAN"      // LAN or RCA
+
+    init() {}
+    init(kv: [String: String]) {
+        serial = kv["serial"] ?? ""
+        ant = kv["ant"] ?? "ANT1"
+        ptt = kv["ptt"] ?? "LAN"
+    }
+}
+
+/// A FlexRadio found on the LAN by the Antenna Genius.
+struct FlexRadio: Identifiable, Equatable {
+    var id: String { serial }
+    let model: String
+    let serial: String
+    let nickname: String
+    let callsign: String
+}

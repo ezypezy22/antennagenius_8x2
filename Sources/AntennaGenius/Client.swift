@@ -19,6 +19,8 @@ final class AGClient: ObservableObject {
     @Published private(set) var deviceName = ""
     @Published private(set) var inbandPort = 0
     @Published private(set) var stack = StackConfig()
+    @Published private(set) var flexConfigs: [Int: FlexPortConfig] = [:]
+    @Published private(set) var flexRadios: [FlexRadio] = []
     @Published private(set) var groups: [OutputGroup] = []
     @Published private(set) var outputs: [OutputDef] = []
     @Published private(set) var relayState = 0
@@ -180,6 +182,31 @@ final class AGClient: ObservableObject {
         }
     }
 
+    // MARK: FlexRadio integration
+
+    func loadFlex() {
+        for p in 1...max(portCount, 1) {
+            send("flex get \(p)") { [weak self] r in
+                guard r.ok else { return }
+                self?.flexConfigs[p] = FlexPortConfig(kv: AGProtocol.tokens(r.message).kv)
+            }
+        }
+        sendList("flex list") { [weak self] lines in
+            self?.flexRadios = lines.compactMap { line in
+                let kv = AGProtocol.tokens(line).kv
+                guard let serial = kv["serial"], !serial.isEmpty else { return nil }
+                return FlexRadio(model: kv["model"] ?? "", serial: serial,
+                                 nickname: kv["nickname"] ?? "", callsign: kv["callsign"] ?? "")
+            }
+        }
+    }
+
+    func saveFlex(port: Int, _ c: FlexPortConfig) {
+        send("flex set \(port) serial=\(c.serial) ant=\(c.ant) ptt=\(c.ptt)") { [weak self] r in
+            if r.ok { self?.loadFlex() }
+        }
+    }
+
     // MARK: Output relays
 
     func loadOutputs() {
@@ -277,6 +304,7 @@ final class AGClient: ObservableObject {
         loadStack()
         loadStackPeers()
         loadOutputs()
+        loadFlex()
         for p in 1...portCount { refreshPort(p) }
     }
 

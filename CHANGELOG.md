@@ -1,5 +1,29 @@
 # Changelog
 
+## 26.10.6
+
+### Enhancements
+
+Settings > Bands > BCD and P2P: the two band-source pinout pages from the Windows utility. BCD shows the connector (GND pin 15, Band A to D on pins 11 to 14) and the BCD data table; P2P shows the Pin to Port connector (Antenna 1 to 8 on pins 1 to 8, GND on pin 15). They are for reference and have nothing to save. Pin numbers are taken from the 4O3A Antenna Genius user manual
+High contrast theme for low vision, next to Light and Dark: black background, white bold text and thick white outlines, bright yellow for Radio A and cyan for Radio B, and text and controls about 35% larger. Choose it from the gear menu (Appearance) or the appearance button on the connect screen; the choice is remembered. The old dark-mode switch is replaced by this Appearance choice
+
+### Bug Fixes
+
+The antenna rows turned red whenever a radio had a TX antenna selected, which looked like a transmit warning during normal use; red now only shows while the radio is actually transmitting, and the radio's own colour (green / blue) is used otherwise
+The cog menu button no longer has a non-functional down arrow next to it and sits at the right edge of the title bar
+
+## 26.10.5
+
+### Enhancements
+
+Settings > Bands > FlexRadio: FlexRadio integration for each radio port, like the Windows utility. Each port has its own box with the serial number of the FlexRadio it is bound to (chosen from the radios the Antenna Genius can see on the network, showing their nickname and callsign), the antenna jack it uses (ANT1, ANT2 or XVRT) and where PTT comes from (LAN or RCA). Save writes the ports you changed
+
+## 26.10.4
+
+### Enhancements
+
+Settings > Bands now works like the Windows utility's Bands configuration: every band is listed with its number, name and frequency span in MHz (start and stop), with the None band greyed out. Edit any of them and Save writes all the bands you changed; start and stop must be numbers with stop not below start, and a band needs a name
+
 ## 26.10.3
 
 ### Enhancements
