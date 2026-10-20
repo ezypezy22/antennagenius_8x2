@@ -1,5 +1,10 @@
 import SwiftUI
 
+enum AppInfo {
+    /// From the bundle's Info.plist, which bundle.sh fills from the VERSION file.
+    static let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
+}
+
 /// Stand-in for @State: the SwiftUI macro plugin isn't shipped with the Command Line Tools.
 final class Box<T>: ObservableObject {
     @Published var value: T
@@ -82,6 +87,7 @@ struct ConnectView: View {
                     .buttonStyle(.plain).help(darkMode ? "Switch to light mode" : "Switch to dark mode")
             }
             Text("Antenna Genius").font(.headline)
+            Text("Version \(AppInfo.version)").font(.caption2).foregroundStyle(.secondary)
             if discovery.devices.isEmpty {
                 ProgressView().controlSize(.small)
                 Text("Listening for devices on UDP 9007…").font(.caption).foregroundStyle(.secondary)
@@ -202,6 +208,8 @@ struct PanelView: View {
         HStack(spacing: 12) {
             Spacer()
             Menu {
+                Text("Antenna Genius \(AppInfo.version)")
+                Divider()
                 Button("Settings…") { showSettings.value = true }
                 Toggle("Dark mode", isOn: $darkMode)
                 Button("Protocol log…") { showLog.value = true }
@@ -543,6 +551,7 @@ struct InfoPage: View {
             TextField("Device name", text: $model.name).textFieldStyle(.roundedBorder).frame(maxWidth: 320)
             Divider().padding(.vertical, 6)
             Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 4) {
+                GridRow { Text("App version").foregroundStyle(.secondary); Text(AppInfo.version) }
                 GridRow { Text("Address").foregroundStyle(.secondary); Text(client.connectedDevice?.ip ?? "") }
                 GridRow { Text("Serial").foregroundStyle(.secondary); Text(client.connectedDevice?.serial ?? "") }
                 GridRow { Text("Firmware").foregroundStyle(.secondary); Text(client.firmware) }
