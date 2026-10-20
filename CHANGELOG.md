@@ -1,5 +1,11 @@
 # Changelog
 
+## 26.10.3
+
+### Enhancements
+
+Settings > Antennas now works like the Windows utility: all antennas are listed together, each with an editable name, a summary of the bands it is used on ("None" until bands are assigned) and a button that opens the Antenna TX/RX table. The table has a row for every band (None, 160m to 6m, 60m and the custom bands) with RX, TX and INB checkboxes and Accept / Cancel. Save writes every antenna you changed in one go; Cancel discards the changes
+
 ## 26.10.2
 
 ### Enhancements

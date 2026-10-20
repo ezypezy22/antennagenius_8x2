@@ -393,17 +393,6 @@ enum SettingsPage: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
-/// Editable copy of an antenna, committed on Save.
-final class AntennaDraft: ObservableObject {
-    @Published var id = 1
-    @Published var name = ""
-    @Published var tx = 0
-    @Published var rx = 0
-    @Published var inband = 0
-    func load(_ a: AntennaInfo) { id = a.id; name = a.name; tx = a.tx; rx = a.rx; inband = a.inband }
-    var info: AntennaInfo { AntennaInfo(id: id, name: name, tx: tx, rx: rx, inband: inband) }
-}
-
 final class BandDraft: ObservableObject {
     @Published var id = 1
     @Published var name = ""
@@ -427,7 +416,8 @@ final class SettingsModel: ObservableObject {
     @Published var selectedGroup = 0
     @Published var confirmInitOutputs = false
     @Published var validation: String?
-    let antenna = AntennaDraft()
+    @Published var antennas: [AntennaInfo] = []
+    @Published var editingAntenna: Int?
     let band = BandDraft()
     private var loaded = false
 
@@ -441,7 +431,7 @@ final class SettingsModel: ObservableObject {
         outputs = c.outputs
         selectedGroup = c.groups.first?.id ?? 0
         net = c.network ?? NetworkConfig()
-        if let a = c.antennas.first { antenna.load(a) }
+        antennas = c.antennas
         if let b = c.bands.first(where: { $0.id != 0 }) { band.load(b) }
     }
 }
@@ -475,7 +465,7 @@ struct SettingsView: View {
                     Group {
                         switch model.page {
                         case .info: InfoPage(model: model)
-                        case .antennas: AntennaSettingsPage(draft: model.antenna)
+                        case .antennas: AntennaSettingsPage(model: model)
                         case .bands: BandSettingsPage(draft: model.band)
                         case .network: NetworkPage(model: model)
                         case .outputs: OutputRelaysPage(model: model)
@@ -535,8 +525,8 @@ struct SettingsView: View {
             client.saveStack(model.stack)
         }
         if model.inbandPort != client.inbandPort { client.setInbandPort(model.inbandPort) }
-        if let a = client.antennas.first(where: { $0.id == model.antenna.id }), a != model.antenna.info {
-            client.saveAntenna(model.antenna.info)
+        for a in model.antennas where client.antennas.first(where: { $0.id == a.id }).map({ $0 != a }) ?? false {
+            client.saveAntenna(a)
         }
         if let b = client.bands.first(where: { $0.id == model.band.id }), b != model.band.info {
             client.saveBand(model.band.info)
@@ -590,40 +580,106 @@ struct NetworkPage: View {
     }
 }
 
+/// Antennas page, like the Windows app: every antenna with a name, a summary of its bands and a button
+/// that opens the Antenna TX/RX table.
 struct AntennaSettingsPage: View {
     @EnvironmentObject var client: AGClient
-    @ObservedObject var draft: AntennaDraft
+    @ObservedObject var model: SettingsModel
 
-    private func bit(_ mask: Binding<Int>, _ band: Int) -> Binding<Bool> {
-        Binding(get: { mask.wrappedValue & (1 << band) != 0 },
-                set: { on in if on { mask.wrappedValue |= 1 << band } else { mask.wrappedValue &= ~(1 << band) } })
+    /// Names of the bands the antenna is used on (the "None" band is not listed); "None" if there are none.
+    private func summary(_ a: AntennaInfo) -> String {
+        let used = client.bands.filter { $0.id != 0 && (a.rx | a.tx | a.inband) & (1 << $0.id) != 0 }
+        return used.isEmpty ? "None" : used.map(\.name).joined(separator: ", ")
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Picker("Antenna", selection: Binding(get: { draft.id }, set: { id in
-                if let a = client.antennas.first(where: { $0.id == id }) { draft.load(a) }
-            })) {
-                ForEach(client.antennas) { Text("\($0.id) — \($0.name)").tag($0.id) }
-            }
-            TextField("Name", text: $draft.name).textFieldStyle(.roundedBorder)
-            Text("Bands this antenna may be used on").font(.subheadline.weight(.semibold))
-            Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 4) {
+        ScrollView {
+            Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 6) {
                 GridRow {
-                    Text("Band").foregroundStyle(.secondary); Text("RX").foregroundStyle(.secondary)
-                    Text("TX").foregroundStyle(.secondary); Text("In-band").foregroundStyle(.secondary)
+                    Text("Name:").fontWeight(.bold)
+                    Text("Bands:").fontWeight(.bold)
                 }
-                ForEach(client.bands) { b in
+                ForEach(model.antennas.indices, id: \.self) { i in
                     GridRow {
-                        Text(b.name)
-                        Toggle("", isOn: bit($draft.rx, b.id)).labelsHidden()
-                        Toggle("", isOn: bit($draft.tx, b.id)).labelsHidden()
-                        Toggle("", isOn: bit($draft.inband, b.id)).labelsHidden()
+                        TextField("", text: $model.antennas[i].name).textFieldStyle(.roundedBorder).frame(width: 190)
+                        HStack(spacing: 0) {
+                            Text(summary(model.antennas[i]))
+                                .fontWeight(.bold).foregroundStyle(Color(red: 0, green: 0.5, blue: 0.1)).lineLimit(1)
+                                .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 6)
+                            Button { model.editingAntenna = model.antennas[i].id } label: {
+                                Image(systemName: "checklist").frame(width: 34, height: 22)
+                                    .background(Theme.button)
+                            }
+                            .buttonStyle(.plain).help("Choose RX, TX and in-band bands")
+                        }
+                        .frame(width: 330, height: 24)
+                        .overlay(Rectangle().stroke(Theme.edge))
                     }
                 }
             }
-            .frame(maxHeight: .infinity, alignment: .top)
-        }.padding(12)
+            .padding(12)
+        }
+        .sheet(isPresented: Binding(get: { model.editingAntenna != nil }, set: { if !$0 { model.editingAntenna = nil } })) {
+            if let id = model.editingAntenna, let i = model.antennas.firstIndex(where: { $0.id == id }) {
+                AntennaBandsSheet(antenna: model.antennas[i], bands: client.bands,
+                                  accept: { model.antennas[i] = $0; model.editingAntenna = nil },
+                                  cancel: { model.editingAntenna = nil })
+            }
+        }
+    }
+}
+
+/// The "Antenna TX/RX" pop-up: one row per band with RX, TX and in-band (INB) checkboxes.
+struct AntennaBandsSheet: View {
+    @StateObject private var draft: Box<AntennaInfo>
+    let bands: [BandInfo]
+    let accept: (AntennaInfo) -> Void
+    let cancel: () -> Void
+
+    init(antenna: AntennaInfo, bands: [BandInfo], accept: @escaping (AntennaInfo) -> Void, cancel: @escaping () -> Void) {
+        _draft = StateObject(wrappedValue: Box(antenna))
+        self.bands = bands; self.accept = accept; self.cancel = cancel
+    }
+
+    private func bit(_ keyPath: WritableKeyPath<AntennaInfo, Int>, _ band: Int) -> Binding<Bool> {
+        Binding(get: { draft.value[keyPath: keyPath] & (1 << band) != 0 },
+                set: { on in
+                    if on { draft.value[keyPath: keyPath] |= 1 << band } else { draft.value[keyPath: keyPath] &= ~(1 << band) }
+                })
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Text("Antenna TX/RX").font(.headline).padding(10)
+            Divider()
+            ScrollView {
+                Grid(horizontalSpacing: 0, verticalSpacing: 0) {
+                    GridRow {
+                        Text("Band").fontWeight(.bold).frame(maxWidth: .infinity, alignment: .leading)
+                        Text("RX").fontWeight(.bold).frame(width: 60)
+                        Text("TX").fontWeight(.bold).frame(width: 60)
+                        Text("INB").fontWeight(.bold).frame(width: 60)
+                    }.padding(.vertical, 6)
+                    Divider().gridCellUnsizedAxes(.horizontal)
+                    ForEach(bands) { b in
+                        GridRow {
+                            Text(b.id == 0 ? "None" : b.name).frame(maxWidth: .infinity, alignment: .leading)
+                            Toggle("", isOn: bit(\.rx, b.id)).labelsHidden().frame(width: 60)
+                            Toggle("", isOn: bit(\.tx, b.id)).labelsHidden().frame(width: 60)
+                            Toggle("", isOn: bit(\.inband, b.id)).labelsHidden().frame(width: 60)
+                        }.padding(.vertical, 3)
+                        Divider().gridCellUnsizedAxes(.horizontal)
+                    }
+                }.padding(.horizontal, 10)
+            }
+            Divider()
+            HStack {
+                Spacer()
+                Button { accept(draft.value) } label: { Label("Accept", systemImage: "checkmark") }.keyboardShortcut(.defaultAction)
+                Button { cancel() } label: { Label("Cancel", systemImage: "xmark") }.keyboardShortcut(.cancelAction)
+            }.padding(10)
+        }
+        .frame(width: 320, height: 470)
     }
 }
 
