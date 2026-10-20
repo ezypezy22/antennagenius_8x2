@@ -48,14 +48,24 @@ final class Discovery: ObservableObject {
     private nonisolated static func receive(on conn: NWConnection, owner: Discovery?) {
         conn.receiveMessage { data, _, _, error in
             if let data, let text = String(data: data, encoding: .utf8) {
-                MainActor.assumeIsolated { owner?.handle(beacon: text.trimmingCharacters(in: .whitespacesAndNewlines)) }
+                let source = Self.sourceIP(of: conn.endpoint)
+                MainActor.assumeIsolated { owner?.handle(beacon: text.trimmingCharacters(in: .whitespacesAndNewlines), source: source) }
             }
             if error == nil { receive(on: conn, owner: owner) } else { conn.cancel() }
         }
     }
 
-    private func handle(beacon: String) {
-        guard let d = DiscoveredDevice(beacon: beacon) else { return }
+    /// IPv4 address a datagram came from (scope id and IPv4-mapped prefix removed), or nil if it isn't IPv4.
+    private nonisolated static func sourceIP(of endpoint: NWEndpoint) -> String? {
+        guard case .hostPort(let host, _) = endpoint else { return nil }
+        var s = "\(host)"
+        if let pct = s.firstIndex(of: "%") { s = String(s[..<pct]) }
+        if s.hasPrefix("::ffff:") { s = String(s.dropFirst(7)) }
+        return NetworkConfig.validIPv4(s) ? s : nil
+    }
+
+    private func handle(beacon: String, source: String?) {
+        guard let d = DiscoveredDevice(beacon: beacon, sourceIP: source) else { return }
         lastSeen[d.id] = Date()
         if let i = devices.firstIndex(where: { $0.id == d.id }) {
             if devices[i] != d { devices[i] = d }

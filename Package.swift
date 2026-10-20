@@ -9,6 +9,12 @@ let package = Package(
             name: "AntennaGenius",
             path: "Sources/AntennaGenius",
             swiftSettings: [.swiftLanguageMode(.v5)]
-        )
+        ),
+        .testTarget(
+            name: "AntennaGeniusTests",
+            dependencies: ["AntennaGenius"],
+            path: "Tests/AntennaGeniusTests",
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
     ]
 )

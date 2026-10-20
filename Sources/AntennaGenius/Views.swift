@@ -27,9 +27,11 @@ enum Appearance: String, CaseIterable, Identifiable {
         case .highContrast: return "High contrast (low vision)"
         }
     }
-    static var current: Appearance {
+    private static var stored: Appearance =
         Appearance(rawValue: UserDefaults.standard.string(forKey: "appearance") ?? "") ?? .light
-    }
+    /// What the theme reads. Each window root calls `apply` from its body, before any child view is built.
+    static var current: Appearance { stored }
+    static func apply(_ raw: String) { stored = Appearance(rawValue: raw) ?? .light }
 }
 
 enum Theme {
@@ -85,6 +87,7 @@ struct ContentView: View {
     @AppStorage("appearance") private var appearance = Appearance.light.rawValue
 
     var body: some View {
+        let _ = Appearance.apply(appearance)
         Group {
             if client.state == .connected {
                 PanelView(showAbout: showAbout)
@@ -109,6 +112,7 @@ struct ConnectView: View {
     @AppStorage("lastIP") private var lastIP = ""
     @StateObject private var waited = Box(false)
     @StateObject private var typedIP = Box("")
+    @StateObject private var typedError = Box<String?>(nil)
 
     var body: some View {
         VStack(spacing: 12) {
@@ -147,6 +151,9 @@ struct ConnectView: View {
             case .failed(let why):
                 Label(why, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.red)
                     .multilineTextAlignment(.center)
+                if client.autoConnect, client.lastDevice != nil {
+                    Text("Trying to reconnect…").font(.caption).foregroundStyle(.secondary)
+                }
             default: EmptyView()
             }
             if let err = discovery.error {
@@ -157,14 +164,21 @@ struct ConnectView: View {
         }
         .padding(20)
         .frame(minHeight: 180)
-        .onChange(of: discovery.devices) { _, d in autoConnectIfSingle(d) }
+        .onChange(of: discovery.devices) { _, d in client.autoReconnect(discovered: d) }
         .onAppear {
-            autoConnectIfSingle(discovery.devices)
+            client.autoReconnect(discovered: discovery.devices)
             if typedIP.value.isEmpty { typedIP.value = lastIP }
         }
         .task {
             try? await Task.sleep(nanoseconds: 4_000_000_000)
             waited.value = true
+        }
+        .task {
+            // Keep trying every few seconds, e.g. while the unit reboots.
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                client.autoReconnect(discovered: discovery.devices)
+            }
         }
     }
 
@@ -184,11 +198,17 @@ struct ConnectView: View {
                     .textFieldStyle(.roundedBorder).onSubmit(connectTyped)
                 Button("Connect", action: connectTyped).disabled(typedIP.value.isEmpty)
             }
+            if let e = typedError.value { Text(e).font(.caption).foregroundStyle(.red) }
         }
     }
 
     private func connectTyped() {
         let ip = typedIP.value.trimmingCharacters(in: .whitespaces)
+        guard NetworkConfig.validIPv4(ip) else {
+            typedError.value = "Enter a valid IPv4 address, like 10.43.10.59."
+            return
+        }
+        typedError.value = nil
         guard let d = DiscoveredDevice(beacon: "AG ip=\(ip) port=9007 serial=manual-\(ip) name=\(ip)") else { return }
         connect(d)
     }
@@ -197,11 +217,6 @@ struct ConnectView: View {
         lastIP = d.ip
         client.autoConnect = true
         client.connect(to: d)
-    }
-
-    private func autoConnectIfSingle(_ d: [DiscoveredDevice]) {
-        guard client.autoConnect, d.count == 1, client.state == .disconnected, let dev = d.first else { return }
-        connect(dev)
     }
 }
 
@@ -403,16 +418,21 @@ struct RadioButton: View {
 
 struct LogView: View {
     @EnvironmentObject var client: AGClient
+    var body: some View { LogLines(store: client.logStore) }
+}
+
+private struct LogLines: View {
+    @ObservedObject var store: LogStore
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(client.log.enumerated()), id: \.offset) { i, l in
+                    ForEach(Array(store.lines.enumerated()), id: \.offset) { i, l in
                         Text(l).font(.system(size: 11, design: .monospaced)).id(i).textSelection(.enabled)
                     }
                 }.padding(6).frame(maxWidth: .infinity, alignment: .leading)
             }
-            .onChange(of: client.log.count) { _, n in proxy.scrollTo(n - 1, anchor: .bottom) }
+            .onChange(of: store.lines.count) { _, n in proxy.scrollTo(n - 1, anchor: .bottom) }
         }
     }
 }
@@ -475,7 +495,7 @@ final class SettingsModel: ObservableObject {
 struct SettingsView: View {
     @EnvironmentObject var client: AGClient
     let close: () -> Void
-    @StateObject private var model = SettingsModel()
+    @ObservedObject var model: SettingsModel
 
     var body: some View {
         VStack(spacing: 0) {
@@ -551,6 +571,11 @@ struct SettingsView: View {
                 model.page = .network
                 return
             }
+        }
+        if !NetworkConfig.isSafeToken(n.auth) {
+            model.validation = "The remote access password can't contain spaces or control characters."
+            model.page = .network
+            return
         }
         if model.name != client.deviceName {
             guard !model.name.trimmingCharacters(in: .whitespaces).isEmpty else {
@@ -1240,9 +1265,12 @@ struct P2PPage: View {
 struct SettingsWindowRoot: View {
     @Environment(\.dismissWindow) private var dismissWindow
     @AppStorage("appearance") private var appearance = Appearance.light.rawValue
+    /// Held here, outside the `.id(appearance)` rebuild, so switching theme doesn't throw away unsaved edits.
+    @StateObject private var model = SettingsModel()
 
     var body: some View {
-        SettingsView(close: { dismissWindow(id: "settings") })
+        let _ = Appearance.apply(appearance)
+        SettingsView(close: { dismissWindow(id: "settings") }, model: model)
             .background(Theme.window)
             .preferredColorScheme(appearance == Appearance.light.rawValue ? .light : .dark)
             .id(appearance)
@@ -1253,6 +1281,7 @@ struct LogWindowRoot: View {
     @AppStorage("appearance") private var appearance = Appearance.light.rawValue
 
     var body: some View {
+        let _ = Appearance.apply(appearance)
         LogView()
             .frame(minWidth: 480, minHeight: 200)
             .background(Theme.window)

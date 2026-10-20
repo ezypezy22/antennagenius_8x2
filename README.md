@@ -15,6 +15,10 @@ Requires the Swift toolchain (Command Line Tools are enough; no Xcode project).
 
 macOS asks for Local Network access on first launch; allow it or discovery will not work.
 
+## Tests
+
+`swift test` (needs XCTest, which comes with Xcode; the Command Line Tools alone do not include it).
+
 ## Protocol notes (firmware 4.1.19)
 
 - Commands end with `\n` (or `\r\n`), not a bare `\r` as the published spec says.

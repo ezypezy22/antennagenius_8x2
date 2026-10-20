@@ -1,5 +1,29 @@
 # Changelog
 
+## 26.10.9
+
+### Enhancements
+
+The app reconnects by itself after the Antenna Genius reboots or its network settings change: it keeps looking for the same unit (by serial number, so a new IP address is fine) every few seconds and says "Trying to reconnect…" meanwhile. It does not reconnect after you choose Disconnect, and a unit that was connected by typing its IP address is retried at that address
+Unit tests for the protocol parsing, the models, the input checks and the reconnect rule (Tests/AntennaGeniusTests, run with swift test where XCTest is installed, e.g. with Xcode)
+
+### Bug Fixes
+
+A list that fails to load (for example output groups) no longer replaces the data the app already has with an empty list
+Changing the appearance while Settings has unsaved edits no longer throws those edits away
+The theme is no longer looked up in the settings store for every colour drawn; each window sets it once as it is drawn
+
+## 26.10.8
+
+### Bug Fixes
+
+Connecting no longer fails the moment macOS reports the connection as "waiting" (for example while the Local Network permission prompt is open); the app now waits up to 20 seconds, and if the device still can't be reached it says so and reminds you to allow Local Network access
+The remote access password could appear in the red error banner when a network save was rejected; the banner now hides it, as the protocol log already did
+The protocol log no longer fills with ping replies (one a second), so it keeps about 1000 lines of useful history instead of the last few minutes, and a new log line no longer redraws every view in the app
+Names typed into Settings (device name, antennas, bands, groups, outputs) can no longer break a command or sneak a second one in: control characters are removed and spaces, "|" and "=" become "_"; the remote access password is refused if it contains spaces, control characters or "|"
+The app could crash if a broadcast reported 0 radio ports
+The app now connects to the address a broadcast actually came from instead of the address written inside it, so a stray or spoofed broadcast can't point it at another machine; a typed IP address must be a valid IPv4 address
+
 ## 26.10.7
 
 ### Enhancements

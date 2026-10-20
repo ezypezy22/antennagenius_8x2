@@ -6,6 +6,16 @@ enum ConnectionState: Equatable {
     case failed(String)
 }
 
+/// The protocol log shown in the log window.
+@MainActor
+final class LogStore: ObservableObject {
+    @Published private(set) var lines: [String] = []
+    func append(_ s: String) {
+        lines.append(s)
+        if lines.count > 1000 { lines.removeFirst(lines.count - 1000) }
+    }
+}
+
 /// TCP client for one Antenna Genius. All callbacks run on the main queue.
 @MainActor
 final class AGClient: ObservableObject {
@@ -14,7 +24,8 @@ final class AGClient: ObservableObject {
     @Published private(set) var ports: [PortState] = []
     @Published private(set) var antennas: [AntennaInfo] = []
     @Published private(set) var bands: [BandInfo] = []
-    @Published private(set) var log: [String] = []
+    /// Separate object so a new log line only redraws the log window, not every view watching the client.
+    let logStore = LogStore()
     @Published private(set) var connectedDevice: DiscoveredDevice?
     @Published private(set) var deviceName = ""
     @Published private(set) var inbandPort = 0
@@ -29,6 +40,8 @@ final class AGClient: ObservableObject {
     @Published var lastError: String?
     /// Cleared when the user disconnects on purpose, so we don't immediately reconnect.
     var autoConnect = true
+    /// The device we were last connected to; used to reconnect after a reboot or network change.
+    private(set) var lastDevice: DiscoveredDevice?
     private var followSource: [Int: String] = [:]   // last non-MANUAL source per port
 
     private var conn: NWConnection?
@@ -38,13 +51,18 @@ final class AGClient: ObservableObject {
     private var listAccumulator: [Int: [String]] = [:]
     private var pingTimer: Timer?
     private var portCount = 2
+    private var quiet: Set<Int> = []          // sequence numbers whose OK replies are not logged (pings)
+    private var waitTimer: Timer?
+    private var isWaiting = false
+    private var waitingReason = ""
 
     func connect(to device: DiscoveredDevice) {
         disconnect()
         state = .connecting
+        lastDevice = device
         connectedDevice = device
         lastError = nil
-        portCount = device.ports
+        portCount = max(device.ports, 1)
         ports = (1...max(device.ports, 1)).map { PortState(id: $0) }
         antennas = (1...max(device.antennas, 1)).map { AntennaInfo(id: $0, name: "Antenna \($0)", tx: 0, rx: 0, inband: 0) }
 
@@ -57,10 +75,27 @@ final class AGClient: ObservableObject {
         receive(on: c)
     }
 
+    /// Called regularly by the connect screen. After the unit reboots (or its address changes) it finds the
+    /// same unit again by serial number and reconnects, unless the user disconnected on purpose.
+    func autoReconnect(discovered: [DiscoveredDevice]) {
+        guard autoConnect else { return }
+        switch state {
+        case .disconnected, .failed: break
+        default: return
+        }
+        if let last = lastDevice {
+            if let d = discovered.first(where: { $0.serial == last.serial }) { connect(to: d) }
+            else if last.serial.hasPrefix("manual-") { connect(to: last) }   // typed IP: not in the broadcast list
+        } else if discovered.count == 1, let d = discovered.first {
+            connect(to: d)
+        }
+    }
+
     func disconnect() {
         pingTimer?.invalidate(); pingTimer = nil
+        stopWaiting()
         conn?.cancel(); conn = nil
-        buffer.removeAll(); pending.removeAll(); listAccumulator.removeAll()
+        buffer.removeAll(); pending.removeAll(); listAccumulator.removeAll(); quiet.removeAll()
         if state != .disconnected { state = .disconnected }
         connectedDevice = nil
     }
@@ -115,8 +150,13 @@ final class AGClient: ObservableObject {
 
     // MARK: Configuration
 
-    private func wire(_ name: String) -> String {
-        name.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: " ", with: "_")
+    /// Free text becomes one command token: control characters are dropped and spaces, `|` and `=` become `_`,
+    /// so a name can never end a command early or smuggle in another one.
+    func wire(_ name: String) -> String {
+        let kept = name.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) }
+        var s = String(String.UnicodeScalarView(kept)).trimmingCharacters(in: .whitespaces)
+        for bad in [" ", "|", "="] { s = s.replacingOccurrences(of: bad, with: "_") }
+        return s
     }
 
     func saveAntenna(_ a: AntennaInfo) {
@@ -154,7 +194,6 @@ final class AGClient: ObservableObject {
         }
     }
 
-    /// Changing DHCP, or any address while DHCP is off, makes the device reboot (~20 s offline).
     func loadStack() {
         send("stack get") { [weak self] r in
             guard r.ok else { return }
@@ -248,7 +287,12 @@ final class AGClient: ObservableObject {
     /// Restores factory defaults (names, bands, antenna setup, network); the device reboots itself.
     func factoryReset() { send("conf init") }
 
+    /// Changing DHCP, or any address while DHCP is off, makes the device reboot (~20 s offline).
     func saveNetwork(_ n: NetworkConfig) {
+        guard NetworkConfig.isSafeToken(n.auth) else {
+            lastError = "The remote access password can't contain spaces or control characters."
+            return
+        }
         var cmd = "network set dhcp=\(n.dhcp ? 1 : 0)"
         if !n.dhcp { cmd += " address=\(n.address) netmask=\(n.netmask) gateway=\(n.gateway)" }
         if !n.auth.isEmpty { cmd += " auth=\(n.auth)" }
@@ -270,12 +314,23 @@ final class AGClient: ObservableObject {
         guard c === conn else { return }
         switch s {
         case .ready:
-            state = .connected
-            bootstrap()
+            stopWaiting()
+            if state != .connected { state = .connected; bootstrap() }
         case .failed(let e):
             fail(e.localizedDescription)
         case .waiting(let e):
-            fail(e.localizedDescription)
+            // macOS reports .waiting while it is still trying (e.g. while the Local Network permission
+            // prompt is open), so give it time instead of failing straight away.
+            waitingReason = e.localizedDescription
+            if !isWaiting {
+                isWaiting = true
+                waitTimer = Timer.scheduledTimer(withTimeInterval: 20, repeats: false) { [weak self] _ in
+                    MainActor.assumeIsolated {
+                        guard let self, self.isWaiting else { return }
+                        self.fail("Can't reach the device (\(self.waitingReason)). If macOS asked for Local Network access, allow it and try again.")
+                    }
+                }
+            }
         case .cancelled:
             break
         default:
@@ -283,7 +338,13 @@ final class AGClient: ObservableObject {
         }
     }
 
+    private func stopWaiting() {
+        waitTimer?.invalidate(); waitTimer = nil
+        isWaiting = false
+    }
+
     private func fail(_ reason: String) {
+        stopWaiting()
         pingTimer?.invalidate(); pingTimer = nil
         conn?.cancel(); conn = nil
         state = .failed(reason)
@@ -292,7 +353,7 @@ final class AGClient: ObservableObject {
     private func bootstrap() {
         send("keepalive enable")
         pingTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.send("ping") }
+            MainActor.assumeIsolated { self?.send("ping", quiet: true) }
         }
         send("sub port all")
         send("sub relay")
@@ -305,7 +366,7 @@ final class AGClient: ObservableObject {
         loadStackPeers()
         loadOutputs()
         loadFlex()
-        for p in 1...portCount { refreshPort(p) }
+        for p in 1...max(portCount, 1) { refreshPort(p) }
     }
 
     func loadAntennas() {
@@ -348,10 +409,11 @@ final class AGClient: ObservableObject {
     }
     private var listDone: [Int: ([String]) -> Void] = [:]
 
-    private func send(_ cmd: String, reply: ((AGResponse) -> Void)? = nil) {
+    private func send(_ cmd: String, quiet isQuiet: Bool = false, reply: ((AGResponse) -> Void)? = nil) {
         let s = nextSeq()
+        if isQuiet { quiet.insert(s) } else { quiet.remove(s) }
         pending[s] = { [weak self] r in
-            if !r.ok { self?.lastError = "“\(cmd)” rejected by device (0x\(String(r.code, radix: 16)))" }
+            if !r.ok { self?.lastError = "“\(Self.masked(cmd))” rejected by device (0x\(String(r.code, radix: 16)))" }
             reply?(r)
         }
         write("C\(s)|\(cmd)")
@@ -392,8 +454,11 @@ final class AGClient: ObservableObject {
     }
 
     private func dispatch(_ line: String) {
-        appendLog("← \(line)")
-        switch AGProtocol.parse(line: line) {
+        let parsed = AGProtocol.parse(line: line)
+        var skipLog = false
+        if case .response(let r) = parsed, quiet.remove(r.seq) != nil, r.ok { skipLog = true }
+        if !skipLog { appendLog("← \(line)") }
+        switch parsed {
         case .prologue(let v, _):
             firmware = v
         case .response(let r):
@@ -401,7 +466,8 @@ final class AGClient: ObservableObject {
                 if r.message.isEmpty || !r.ok {
                     let rows = listAccumulator.removeValue(forKey: r.seq) ?? []
                     pending[r.seq] = nil
-                    listDone.removeValue(forKey: r.seq)?(rows)
+                    let done = listDone.removeValue(forKey: r.seq)
+                    if r.ok { done?(rows) }   // on error keep the data we already have
                 } else {
                     listAccumulator[r.seq]?.append(r.message)
                 }
@@ -435,9 +501,10 @@ final class AGClient: ObservableObject {
         if let src = kv["source"], src != "MANUAL" { followSource[id] = src }
     }
 
-    private func appendLog(_ s: String) {
-        let masked = s.replacingOccurrences(of: #"auth=\S+"#, with: "auth=***", options: .regularExpression)
-        log.append(masked)
-        if log.count > 300 { log.removeFirst(log.count - 300) }
+    /// Hides the remote access password anywhere a command or reply is shown.
+    static func masked(_ s: String) -> String {
+        s.replacingOccurrences(of: #"auth=\S+"#, with: "auth=***", options: .regularExpression)
     }
+
+    private func appendLog(_ s: String) { logStore.append(Self.masked(s)) }
 }

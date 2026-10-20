@@ -65,11 +65,13 @@ struct DiscoveredDevice: Identifiable, Hashable {
     let antennas: Int
     let mode: String
 
-    init?(beacon: String) {
+    /// `sourceIP` is the address the packet really came from; it wins over the `ip=` the packet claims,
+    /// so a stray or spoofed broadcast can't point the app at some other host.
+    init?(beacon: String, sourceIP: String? = nil) {
         guard beacon.hasPrefix("AG") else { return nil }
         let kv = AGProtocol.tokens(beacon).kv
         guard let ip = kv["ip"], let serial = kv["serial"] else { return nil }
-        self.ip = ip
+        self.ip = sourceIP ?? ip
         self.serial = serial
         self.port = kv["port"].flatMap(UInt16.init) ?? AGProtocol.port
         self.version = kv["v"] ?? ""
@@ -130,6 +132,11 @@ struct NetworkConfig: Equatable {
         netmask = kv["netmask"] ?? ""
         gateway = kv["gateway"] ?? ""
         auth = kv["auth"] ?? ""
+    }
+
+    /// True if the text can be sent as one command token: no whitespace, control characters or `|`.
+    static func isSafeToken(_ s: String) -> Bool {
+        !s.unicodeScalars.contains { CharacterSet.whitespacesAndNewlines.contains($0) || CharacterSet.controlCharacters.contains($0) || $0 == "|" }
     }
 
     static func validIPv4(_ s: String) -> Bool {
