@@ -9,9 +9,13 @@ enum ConnectionState: Equatable {
 /// The protocol log shown in the log window.
 @MainActor
 final class LogStore: ObservableObject {
-    @Published private(set) var lines: [String] = []
+    struct Line: Identifiable { let id: Int; let text: String }
+    @Published private(set) var lines: [Line] = []
+    private var nextID = 0
+    /// Ids only ever increase, so the view can follow new output even once the 1000-line cap is reached.
     func append(_ s: String) {
-        lines.append(s)
+        lines.append(Line(id: nextID, text: s))
+        nextID += 1
         if lines.count > 1000 { lines.removeFirst(lines.count - 1000) }
     }
 }
@@ -52,6 +56,7 @@ final class AGClient: ObservableObject {
     private var pingTimer: Timer?
     private var portCount = 2
     private var quiet: Set<Int> = []          // sequence numbers whose OK replies are not logged (pings)
+    private var lastManualAttempt = Date.distantPast
     private var waitTimer: Timer?
     private var isWaiting = false
     private var waitingReason = ""
@@ -85,7 +90,15 @@ final class AGClient: ObservableObject {
         }
         if let last = lastDevice {
             if let d = discovered.first(where: { $0.serial == last.serial }) { connect(to: d) }
-            else if last.serial.hasPrefix("manual-") { connect(to: last) }   // typed IP: not in the broadcast list
+            else if last.serial.hasPrefix("manual-") {
+                // typed IP: not in the broadcast list, so retry it, but not more often than every 15 s
+                if Date().timeIntervalSince(lastManualAttempt) >= 15 {
+                    lastManualAttempt = Date()
+                    connect(to: last)
+                }
+            } else if discovered.count == 1, let d = discovered.first {
+                connect(to: d)   // a different unit is the only one around (other network or unit)
+            }
         } else if discovered.count == 1, let d = discovered.first {
             connect(to: d)
         }
@@ -154,9 +167,11 @@ final class AGClient: ObservableObject {
     /// so a name can never end a command early or smuggle in another one.
     func wire(_ name: String) -> String {
         let kept = name.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) }
-        var s = String(String.UnicodeScalarView(kept)).trimmingCharacters(in: .whitespaces)
-        for bad in [" ", "|", "="] { s = s.replacingOccurrences(of: bad, with: "_") }
-        return s
+        let s = String(String.UnicodeScalarView(kept)).trimmingCharacters(in: .whitespacesAndNewlines)
+        let mapped = s.unicodeScalars.map { c -> Character in
+            CharacterSet.whitespacesAndNewlines.contains(c) || c == "|" || c == "=" ? "_" : Character(c)
+        }
+        return String(mapped)
     }
 
     func saveAntenna(_ a: AntennaInfo) {
@@ -321,6 +336,8 @@ final class AGClient: ObservableObject {
         case .waiting(let e):
             // macOS reports .waiting while it is still trying (e.g. while the Local Network permission
             // prompt is open), so give it time instead of failing straight away.
+            // Once connected, a path change must not tear down a working session.
+            guard state == .connecting else { break }
             waitingReason = e.localizedDescription
             if !isWaiting {
                 isWaiting = true

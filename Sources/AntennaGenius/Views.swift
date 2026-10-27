@@ -427,12 +427,12 @@ private struct LogLines: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(store.lines.enumerated()), id: \.offset) { i, l in
-                        Text(l).font(.system(size: 11, design: .monospaced)).id(i).textSelection(.enabled)
+                    ForEach(store.lines) { l in
+                        Text(l.text).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
                     }
                 }.padding(6).frame(maxWidth: .infinity, alignment: .leading)
             }
-            .onChange(of: store.lines.count) { _, n in proxy.scrollTo(n - 1, anchor: .bottom) }
+            .onChange(of: store.lines.last?.id) { _, id in if let id { proxy.scrollTo(id, anchor: .bottom) } }
         }
     }
 }

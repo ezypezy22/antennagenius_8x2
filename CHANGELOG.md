@@ -1,5 +1,15 @@
 # Changelog
 
+## 26.10.10
+
+### Bug Fixes
+
+The protocol log keeps following new lines after it reaches its 1000-line limit
+If the unit you were connected to is gone and exactly one other unit is on the network, the app now connects to that one
+A typed IP address that can't be reached is retried at most every 15 seconds instead of every few seconds
+A network path change while connected no longer drops a working connection
+Names with non-breaking or other Unicode spaces are sent to the device with underscores, like ordinary spaces
+
 ## 26.10.9
 
 ### Enhancements
