@@ -116,13 +116,14 @@ final class AGClient: ObservableObject {
     // MARK: Commands
 
     /// The device accepts an RX antenna if its rx mask has the port's band bit set (band 0 = "None"
-    /// is RX-enabled by default), and a TX antenna if its tx mask does. Port source must be MANUAL.
+    /// is not checked here), and a TX antenna if its tx mask does. Port source must be MANUAL.
     func selectAntenna(port id: Int, antenna: Int, rx: Bool = true, tx: Bool = true) {
         guard let p = ports.first(where: { $0.id == id }),
               let ant = antennas.first(where: { $0.id == antenna }) else { return }
         let bandName = bands.first { $0.id == p.band }?.name ?? "band \(p.band)"
-        let rxOK = rx && ant.rx & (1 << p.band) != 0
-        let txOK = tx && ant.tx & (1 << p.band) != 0
+        // Band 0 ("None", no band reported yet) has no meaningful mask, so don't second-guess the device there.
+        let rxOK = rx && (p.band == 0 || ant.rx & (1 << p.band) != 0)
+        let txOK = tx && (p.band == 0 || ant.tx & (1 << p.band) != 0)
         if !rxOK && !txOK {
             lastError = "\(ant.name) isn't enabled for \(bandName) on Radio \(id == 1 ? "A" : "B")."
             return

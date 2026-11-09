@@ -21,6 +21,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply { .terminateNow }
 
+    /// Runs on every quit path (Cmd-Q, Dock, last window). The watchdog lives off the main thread so a stuck
+    /// main thread or network teardown can't leave a zombie process holding UDP 9007.
+    func applicationWillTerminate(_ notification: Notification) {
+        AppDelegate.armWatchdog()
+    }
+
+    private static func armWatchdog() {
+        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 1) { _exit(0) }
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Belt and braces: if the delegate hook above isn't honoured, quit when no real window remains.
         NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) { note in
@@ -34,8 +44,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     static func quit() {
+        armWatchdog()
         NSApp.terminate(nil)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { exit(0) }
     }
 }
 

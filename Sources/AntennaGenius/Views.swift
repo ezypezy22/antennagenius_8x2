@@ -84,13 +84,17 @@ struct ContentView: View {
     @EnvironmentObject var discovery: Discovery
     @EnvironmentObject var client: AGClient
     @StateObject private var showAbout = Box(false)
+    @StateObject private var chosen = Box(false)
     @AppStorage("appearance") private var appearance = Appearance.light.rawValue
+    @AppStorage("portMode") private var portMode = PortMode.so2r.rawValue
 
     var body: some View {
         let _ = Appearance.apply(appearance)
         Group {
-            if client.state == .connected {
-                PanelView(showAbout: showAbout)
+            if client.state == .connected && !chosen.value {
+                PortChooser(mode: $portMode, done: { chosen.value = true })
+            } else if client.state == .connected {
+                PanelView(showAbout: showAbout, portMode: $portMode, reselect: { chosen.value = false })
             } else {
                 ConnectView()
             }
@@ -99,7 +103,41 @@ struct ContentView: View {
         .background(Theme.window)
         .preferredColorScheme(appearance == Appearance.light.rawValue ? .light : .dark)
         .id(appearance)   // rebuild so every view re-reads the theme
+        .onChange(of: client.state) { _, st in if st != .connected { chosen.value = false } }
         .sheet(isPresented: $showAbout.value) { AboutView(close: { showAbout.value = false }) }
+    }
+}
+
+// MARK: - Port chooser
+
+/// Which radio port(s) this window controls, like the Windows utility's "Port chooser".
+/// A view filter only; the device always keeps both ports.
+enum PortMode: String, CaseIterable, Identifiable {
+    case a, so2r, b
+    var id: String { rawValue }
+    var label: String { self == .a ? "Port A" : self == .b ? "Port B" : "SO2R" }
+    func shows(_ port: Int) -> Bool { self == .so2r || (self == .a ? port == 1 : port == 2) }
+}
+
+struct PortChooser: View {
+    @Binding var mode: String
+    let done: () -> Void
+
+    var body: some View {
+        VStack(spacing: 10) {
+            Text("Port chooser").font(.headline)
+            HStack(spacing: 6) {
+                ForEach(PortMode.allCases) { m in
+                    Button { mode = m.rawValue; done() } label: {
+                        Text(m.label).font(.system(size: Theme.fs(13), weight: .semibold)).foregroundStyle(Theme.text)
+                            .frame(maxWidth: .infinity, minHeight: 70)
+                            .background(m.rawValue == mode ? Theme.radioB : Theme.button, in: RoundedRectangle(cornerRadius: 3))
+                            .overlay(RoundedRectangle(cornerRadius: 3).stroke(Theme.edge, lineWidth: Theme.lineWidth))
+                    }.buttonStyle(.plain)
+                }
+            }
+        }
+        .padding(16)
     }
 }
 
@@ -225,7 +263,10 @@ struct ConnectView: View {
 struct PanelView: View {
     @EnvironmentObject var client: AGClient
     @ObservedObject var showAbout: Box<Bool>
+    @Binding var portMode: String
+    let reselect: () -> Void
     @Environment(\.openWindow) private var openWindow
+    private var mode: PortMode { PortMode(rawValue: portMode) ?? .so2r }
     @AppStorage("appearance") private var appearance = Appearance.light.rawValue
 
     var body: some View {
@@ -244,11 +285,11 @@ struct PanelView: View {
                 .font(.system(size: Theme.fs(15), weight: .bold)).frame(maxWidth: .infinity).padding(.vertical, 6)
                 .background(Theme.chrome)
             HStack(spacing: 2) {
-                ForEach(client.ports, id: \.id) { SourceBandHeader(port: $0) }
+                ForEach(client.ports.filter { mode.shows($0.id) }, id: \.id) { SourceBandHeader(port: $0) }
             }
             .padding(.horizontal, 2)
             VStack(spacing: 2) {
-                ForEach(client.antennas) { AntennaRow(ant: $0) }
+                ForEach(client.antennas) { AntennaRow(ant: $0, mode: mode) }
             }
             .padding(.horizontal, 2).padding(.top, 2).padding(.bottom, 2)
             Text("Version \(AppInfo.version)").font(.system(size: Theme.fs(10))).foregroundStyle(.secondary)
@@ -261,6 +302,7 @@ struct PanelView: View {
             Spacer()
             Menu {
                 Button("Settings…") { openWindow(id: "settings") }
+                Button("Port chooser…", action: reselect)
                 Picker("Appearance", selection: $appearance) {
                     ForEach(Appearance.allCases) { Text($0.label).tag($0.rawValue) }
                 }
@@ -337,8 +379,9 @@ struct SourceBandHeader: View {
 struct AntennaRow: View {
     @EnvironmentObject var client: AGClient
     let ant: AntennaInfo
+    var mode: PortMode = .so2r
 
-    private func port(_ id: Int) -> PortState? { client.ports.first { $0.id == id } }
+    private func port(_ id: Int) -> PortState? { mode.shows(id) ? client.ports.first { $0.id == id } : nil }
 
     /// Background for one radio's share of the name cell (transmit overrides the radio colour).
     private func fill(_ p: PortState?) -> LinearGradient? {
@@ -351,7 +394,7 @@ struct AntennaRow: View {
     var body: some View {
         let a = fill(port(1)), b = fill(port(2))
         HStack(spacing: 2) {
-            RadioButton(letter: "A", ant: ant, port: port(1), heldBy: heldBy(other: 1))
+            if mode.shows(1) { RadioButton(letter: "A", ant: ant, port: port(1), heldBy: heldBy(other: 1)) }
             ZStack {
                 if a == nil && b == nil {
                     Rectangle().fill(Theme.row)
@@ -366,7 +409,7 @@ struct AntennaRow: View {
             }
             .frame(maxWidth: .infinity, minHeight: Theme.fs(34), maxHeight: Theme.fs(34))
             .overlay(Rectangle().stroke(Theme.edge, lineWidth: Theme.lineWidth))
-            RadioButton(letter: "B", ant: ant, port: port(2), heldBy: heldBy(other: 2))
+            if mode.shows(2) { RadioButton(letter: "B", ant: ant, port: port(2), heldBy: heldBy(other: 2)) }
         }
     }
 

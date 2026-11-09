@@ -1,6 +1,22 @@
 # Changelog
 
+## 26.10.12
+
+### Enhancements
+
+Port chooser after connecting (Port A, SO2R or Port B) limits the panel to the chosen radio; reopen it from the gear menu
+
+### Bug Fixes
+
+Quitting always ends the process, so a leftover copy can no longer hold UDP 9007 or block the next start
+Selecting an antenna while the radio's band is "None" is no longer blocked by a band-mask check
+Discovery shares UDP 9007 with other apps such as AetherSDR (SO_REUSEPORT) instead of failing to start
+
 ## 26.10.10
+
+### Enhancements
+
+The app has an icon: the 4O3A logo on a white tile (tools/make_icon.swift redraws it from Resources/logo.png)
 
 ### Bug Fixes
 

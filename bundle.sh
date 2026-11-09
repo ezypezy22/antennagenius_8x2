@@ -7,7 +7,8 @@ VERSION="$(tr -d '[:space:]' < VERSION)"
 BUILD_NUM="${VERSION##*.}"
 swift build -c release
 APP=build/AntennaGenius.app
-rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS"
+rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+cp Resources/AppIcon.icns "$APP/Contents/Resources/"
 cp .build/release/AntennaGenius "$APP/Contents/MacOS/"
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -15,6 +16,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <plist version="1.0"><dict>
 <key>CFBundleName</key><string>Antenna Genius</string>
 <key>CFBundleIdentifier</key><string>local.antennagenius.mac</string>
+<key>CFBundleIconFile</key><string>AppIcon</string>
 <key>CFBundleExecutable</key><string>AntennaGenius</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleVersion</key><string>${BUILD_NUM}</string>

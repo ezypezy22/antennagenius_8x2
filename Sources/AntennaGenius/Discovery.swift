@@ -8,60 +8,62 @@ final class Discovery: ObservableObject {
     /// Set if we can't listen for beacons (e.g. another app already owns UDP 9007).
     @Published private(set) var error: String?
     private var lastSeen: [String: Date] = [:]
-    private var listener: NWListener?
+    private var source: DispatchSourceRead?
     private var pruneTimer: Timer?
 
     func start() {
-        guard listener == nil else { return }
-        let params = NWParameters.udp
-        params.allowLocalEndpointReuse = true
-        guard let l = try? NWListener(using: params, on: NWEndpoint.Port(rawValue: AGProtocol.port)!) else {
-            error = "Can't listen on UDP 9007. Another app may be using it."
+        guard source == nil else { return }
+        // A plain socket, because NWListener only sets SO_REUSEADDR and other apps (e.g. AetherSDR) share the port with SO_REUSEPORT.
+        let fd = socket(AF_INET, SOCK_DGRAM, 0)
+        guard fd >= 0 else { error = "Can't listen on UDP 9007 (socket failed)."; return }
+        var on: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &on, socklen_t(MemoryLayout<Int32>.size))
+        setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &on, socklen_t(MemoryLayout<Int32>.size))
+        var addr = sockaddr_in()
+        addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_port = AGProtocol.port.bigEndian
+        addr.sin_addr.s_addr = INADDR_ANY.bigEndian
+        let rc = withUnsafePointer(to: &addr) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
+        }
+        guard rc == 0 else {
+            let msg = String(cString: strerror(errno))
+            close(fd)
+            error = "Can't listen on UDP 9007 (\(msg)). Another app may be using it."
             return
         }
-        l.newConnectionHandler = { [weak self] conn in
-            conn.start(queue: .main)
-            Self.receive(on: conn, owner: self)
+        error = nil
+        let src = DispatchSource.makeReadSource(fileDescriptor: fd, queue: .main)
+        src.setEventHandler { [weak self] in
+            MainActor.assumeIsolated { self?.readPending(fd) }
         }
-        l.stateUpdateHandler = { [weak self] st in
-            MainActor.assumeIsolated {
-                switch st {
-                case .failed(let e), .waiting(let e):
-                    self?.error = "Can't listen on UDP 9007 (\(e.localizedDescription)). Another app may be using it."
-                case .ready: self?.error = nil
-                default: break
-                }
-            }
-        }
-        l.start(queue: .main)
-        listener = l
+        src.setCancelHandler { close(fd) }
+        src.resume()
+        source = src
         pruneTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.prune() }
         }
     }
 
     func stop() {
-        listener?.cancel(); listener = nil
+        source?.cancel(); source = nil
         pruneTimer?.invalidate(); pruneTimer = nil
     }
 
-    private nonisolated static func receive(on conn: NWConnection, owner: Discovery?) {
-        conn.receiveMessage { data, _, _, error in
-            if let data, let text = String(data: data, encoding: .utf8) {
-                let source = Self.sourceIP(of: conn.endpoint)
-                MainActor.assumeIsolated { owner?.handle(beacon: text.trimmingCharacters(in: .whitespacesAndNewlines), source: source) }
-            }
-            if error == nil { receive(on: conn, owner: owner) } else { conn.cancel() }
+    private func readPending(_ fd: Int32) {
+        var buf = [UInt8](repeating: 0, count: 2048)
+        var from = sockaddr_in()
+        var len = socklen_t(MemoryLayout<sockaddr_in>.size)
+        let n = withUnsafeMutablePointer(to: &from) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { recvfrom(fd, &buf, buf.count, 0, $0, &len) }
         }
-    }
-
-    /// IPv4 address a datagram came from (scope id and IPv4-mapped prefix removed), or nil if it isn't IPv4.
-    private nonisolated static func sourceIP(of endpoint: NWEndpoint) -> String? {
-        guard case .hostPort(let host, _) = endpoint else { return nil }
-        var s = "\(host)"
-        if let pct = s.firstIndex(of: "%") { s = String(s[..<pct]) }
-        if s.hasPrefix("::ffff:") { s = String(s.dropFirst(7)) }
-        return NetworkConfig.validIPv4(s) ? s : nil
+        guard n > 0, let text = String(bytes: buf[0..<n], encoding: .utf8) else { return }
+        var ip = from.sin_addr
+        var name = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
+        inet_ntop(AF_INET, &ip, &name, socklen_t(INET_ADDRSTRLEN))
+        let src = String(cString: name)
+        handle(beacon: text.trimmingCharacters(in: .whitespacesAndNewlines), source: NetworkConfig.validIPv4(src) ? src : nil)
     }
 
     private func handle(beacon: String, source: String?) {
