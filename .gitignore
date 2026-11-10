@@ -4,3 +4,4 @@ dist/
 .swiftpm/
 *.dmg
 .DS_Store
+.vscode/

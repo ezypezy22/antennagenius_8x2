@@ -15,6 +15,7 @@ Discovery shares UDP 9007 with other apps such as AetherSDR (SO_REUSEPORT) inste
 Discovery retries every few seconds if UDP 9007 was busy at launch, instead of staying dead until relaunch
 The port chooser is shown again when you connect to a different unit
 At band "None" only the RX band-mask check is skipped; TX is no longer sent to antennas whose TX mask excludes it
+The main panel is a single window (no File > New Window), since the port choice and device session are app-wide
 In Port A/B view the "in use by" hint ignores the radio that isn't shown
 
 ## 26.10.10

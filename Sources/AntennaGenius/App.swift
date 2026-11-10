@@ -63,7 +63,8 @@ struct AntennaGeniusApp: App {
     @StateObject private var client = AGClient()
 
     var body: some Scene {
-        WindowGroup("Antenna Genius") {
+        // A single-instance Window (not WindowGroup): the port choice and device session are app-wide, so no second window.
+        Window("Antenna Genius", id: "main") {
             ContentView()
                 .environmentObject(discovery)
                 .environmentObject(client)
