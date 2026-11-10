@@ -1,6 +1,6 @@
 # Changelog
 
-## 26.10.13
+## 26.11.1
 
 ### Enhancements
 
