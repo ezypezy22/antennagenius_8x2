@@ -9,12 +9,26 @@ final class Discovery: ObservableObject {
     private var lastSeen: [String: Date] = [:]
     private var source: DispatchSourceRead?
     private var pruneTimer: Timer?
+    private var retryTimer: Timer?
 
+    /// Binds UDP 9007. If that fails (port busy), keeps retrying every few seconds until it works.
     func start() {
         guard source == nil else { return }
+        if tryBind() { return }
+        guard retryTimer == nil else { return }
+        retryTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.tryBind() else { return }
+                self.retryTimer?.invalidate(); self.retryTimer = nil
+            }
+        }
+    }
+
+    /// One bind attempt. Returns true once listening; sets `error` otherwise.
+    private func tryBind() -> Bool {
         // A plain socket, because NWListener only sets SO_REUSEADDR and other apps (e.g. AetherSDR) share the port with SO_REUSEPORT.
         let fd = socket(AF_INET, SOCK_DGRAM, 0)
-        guard fd >= 0 else { error = "Can't listen on UDP \(AGProtocol.port) (socket failed)."; return }
+        guard fd >= 0 else { error = "Can't listen on UDP \(AGProtocol.port) (socket failed)."; return false }
         var on: Int32 = 1
         let optLen = socklen_t(MemoryLayout<Int32>.size)
         guard setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &on, optLen) == 0,
@@ -22,7 +36,7 @@ final class Discovery: ObservableObject {
             let msg = String(cString: strerror(errno))
             close(fd)
             error = "Can't share UDP \(AGProtocol.port) (\(msg))."
-            return
+            return false
         }
         var addr = sockaddr_in()
         addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
@@ -36,7 +50,7 @@ final class Discovery: ObservableObject {
             let msg = String(cString: strerror(errno))
             close(fd)
             error = "Can't listen on UDP \(AGProtocol.port) (\(msg)). Another app may be using it."
-            return
+            return false
         }
         error = nil
         let src = DispatchSource.makeReadSource(fileDescriptor: fd, queue: .main)
@@ -49,11 +63,13 @@ final class Discovery: ObservableObject {
         pruneTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.prune() }
         }
+        return true
     }
 
     func stop() {
         source?.cancel(); source = nil
         pruneTimer?.invalidate(); pruneTimer = nil
+        retryTimer?.invalidate(); retryTimer = nil
     }
 
     private func readPending(_ fd: Int32) {

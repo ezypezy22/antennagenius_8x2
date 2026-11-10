@@ -84,17 +84,17 @@ struct ContentView: View {
     @EnvironmentObject var discovery: Discovery
     @EnvironmentObject var client: AGClient
     @StateObject private var showAbout = Box(false)
-    @StateObject private var chosen = Box(false)
+    @StateObject private var chosenFor = Box<String?>(nil)   // serial of the unit the port choice was made for
     @AppStorage("appearance") private var appearance = Appearance.light.rawValue
     @AppStorage("portMode") private var portMode = PortMode.so2r.rawValue
 
     var body: some View {
         let _ = Appearance.apply(appearance)
         Group {
-            if client.state == .connected && !chosen.value {
-                PortChooser(mode: $portMode, showAbout: showAbout, done: { chosen.value = true })
+            if client.state == .connected && client.connectedDevice?.serial != chosenFor.value {
+                PortChooser(mode: $portMode, showAbout: showAbout, done: { chosenFor.value = client.connectedDevice?.serial })
             } else if client.state == .connected {
-                PanelView(showAbout: showAbout, portMode: $portMode, reselect: { chosen.value = false })
+                PanelView(showAbout: showAbout, portMode: $portMode, reselect: { chosenFor.value = nil })
             } else {
                 ConnectView()
             }
@@ -260,7 +260,6 @@ struct ConnectView: View {
             // Keep trying every few seconds, e.g. while the unit reboots.
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
-                discovery.start()   // no-op while listening; retries if the bind failed (port was busy)
                 client.autoReconnect(discovered: discovery.devices)
             }
         }
@@ -434,7 +433,7 @@ struct AntennaRow: View {
 
     /// Letter of the other radio if it is using this antenna (the device may refuse to share it).
     private func heldBy(other id: Int) -> String? {
-        guard let o = client.ports.first(where: { $0.id != id }), o.rxant == ant.id || o.txant == ant.id else { return nil }
+        guard let o = client.ports.first(where: { $0.id != id && mode.shows($0.id) }), o.rxant == ant.id || o.txant == ant.id else { return nil }
         return o.id == 1 ? "A" : "B"
     }
 }

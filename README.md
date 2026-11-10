@@ -23,7 +23,7 @@ macOS asks for Local Network access on first launch; allow it or discovery will 
 
 - Commands end with `\n` (or `\r\n`), not a bare `\r` as the published spec says.
 - Antenna selection needs the port source set to MANUAL; an antenna must be enabled
-  for the port's band (band 0 allows RX only by default).
+  for the port's band (band 0 allows RX only by default; the app skips its own RX mask check at band 0 but always checks the TX mask).
 - `sub antenna` and `sub group` are not supported.
 
 API reference: https://github.com/4o3a/genius-api-docs/wiki

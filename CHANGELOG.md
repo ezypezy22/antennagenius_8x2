@@ -12,7 +12,10 @@ The app has an icon: the 4O3A logo on a white tile (tools/make_icon.swift redraw
 Quitting always ends the process, so a leftover copy can no longer hold UDP 9007 or block the next start
 Selecting an antenna while the radio's band is "None" is no longer blocked by a band-mask check
 Discovery shares UDP 9007 with other apps such as AetherSDR (SO_REUSEPORT) instead of failing to start
-Discovery retries if UDP 9007 was busy at launch, instead of staying dead until relaunch
+Discovery retries every few seconds if UDP 9007 was busy at launch, instead of staying dead until relaunch
+The port chooser is shown again when you connect to a different unit
+At band "None" only the RX band-mask check is skipped; TX is no longer sent to antennas whose TX mask excludes it
+In Port A/B view the "in use by" hint ignores the radio that isn't shown
 
 ## 26.10.10
 
