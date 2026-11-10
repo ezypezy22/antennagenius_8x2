@@ -1,5 +1,4 @@
 import Foundation
-import Network
 
 /// Listens for the Antenna Genius 1 Hz UDP broadcast beacon on port 9007.
 @MainActor
@@ -15,10 +14,16 @@ final class Discovery: ObservableObject {
         guard source == nil else { return }
         // A plain socket, because NWListener only sets SO_REUSEADDR and other apps (e.g. AetherSDR) share the port with SO_REUSEPORT.
         let fd = socket(AF_INET, SOCK_DGRAM, 0)
-        guard fd >= 0 else { error = "Can't listen on UDP 9007 (socket failed)."; return }
+        guard fd >= 0 else { error = "Can't listen on UDP \(AGProtocol.port) (socket failed)."; return }
         var on: Int32 = 1
-        setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &on, socklen_t(MemoryLayout<Int32>.size))
-        setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &on, socklen_t(MemoryLayout<Int32>.size))
+        let optLen = socklen_t(MemoryLayout<Int32>.size)
+        guard setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &on, optLen) == 0,
+              setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &on, optLen) == 0 else {
+            let msg = String(cString: strerror(errno))
+            close(fd)
+            error = "Can't share UDP \(AGProtocol.port) (\(msg))."
+            return
+        }
         var addr = sockaddr_in()
         addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
         addr.sin_family = sa_family_t(AF_INET)
@@ -30,7 +35,7 @@ final class Discovery: ObservableObject {
         guard rc == 0 else {
             let msg = String(cString: strerror(errno))
             close(fd)
-            error = "Can't listen on UDP 9007 (\(msg)). Another app may be using it."
+            error = "Can't listen on UDP \(AGProtocol.port) (\(msg)). Another app may be using it."
             return
         }
         error = nil

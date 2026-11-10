@@ -27,7 +27,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AppDelegate.armWatchdog()
     }
 
+    private static var watchdogArmed = false
+
+    /// Idempotent: quit() and applicationWillTerminate both arm it, but one _exit timer is enough.
     private static func armWatchdog() {
+        guard !watchdogArmed else { return }
+        watchdogArmed = true
         DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 1) { _exit(0) }
     }
 

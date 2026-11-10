@@ -92,7 +92,7 @@ struct ContentView: View {
         let _ = Appearance.apply(appearance)
         Group {
             if client.state == .connected && !chosen.value {
-                PortChooser(mode: $portMode, done: { chosen.value = true })
+                PortChooser(mode: $portMode, showAbout: showAbout, done: { chosen.value = true })
             } else if client.state == .connected {
                 PanelView(showAbout: showAbout, portMode: $portMode, reselect: { chosen.value = false })
             } else {
@@ -103,8 +103,44 @@ struct ContentView: View {
         .background(Theme.window)
         .preferredColorScheme(appearance == Appearance.light.rawValue ? .light : .dark)
         .id(appearance)   // rebuild so every view re-reads the theme
-        .onChange(of: client.state) { _, st in if st != .connected { chosen.value = false } }
         .sheet(isPresented: $showAbout.value) { AboutView(close: { showAbout.value = false }) }
+    }
+}
+
+// MARK: - Title bar
+
+/// Gear menu shared by the panel and the port chooser. `reselect` is nil on the chooser itself.
+struct TitleBar: View {
+    @EnvironmentObject var client: AGClient
+    @ObservedObject var showAbout: Box<Bool>
+    let reselect: (() -> Void)?
+    @Environment(\.openWindow) private var openWindow
+    @AppStorage("appearance") private var appearance = Appearance.light.rawValue
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Spacer()
+            Menu {
+                Button("Settings…") { openWindow(id: "settings") }
+                if let reselect { Button("Port chooser…", action: reselect) }
+                Picker("Appearance", selection: $appearance) {
+                    ForEach(Appearance.allCases) { Text($0.label).tag($0.rawValue) }
+                }
+                Button("Protocol log…") { openWindow(id: "log") }
+                Divider()
+                Button("About Antenna Genius…") { showAbout.value = true }
+                Divider()
+                // A deliberate disconnect starts the next session at the chooser; a dropped link does not.
+                Button("Disconnect") { reselect?(); client.autoConnect = false; client.disconnect() }
+                Button("Quit Antenna Genius") { AppDelegate.quit() }.keyboardShortcut("q")
+            } label: {
+                Image(systemName: "gearshape.fill").foregroundStyle(.gray)
+            }
+            .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+        }
+        .font(.system(size: Theme.fs(13), weight: .bold))
+        .padding(.horizontal, 8).padding(.vertical, 5)
+        .background(Theme.chrome.opacity(0.7))
     }
 }
 
@@ -121,15 +157,24 @@ enum PortMode: String, CaseIterable, Identifiable {
 
 struct PortChooser: View {
     @Binding var mode: String
+    @ObservedObject var showAbout: Box<Bool>
     let done: () -> Void
 
     var body: some View {
+        VStack(spacing: 0) {
+            TitleBar(showAbout: showAbout, reselect: nil)
+            chooser
+        }
+    }
+
+    private var chooser: some View {
         VStack(spacing: 10) {
             Text("Port chooser").font(.headline)
             HStack(spacing: 6) {
                 ForEach(PortMode.allCases) { m in
                     Button { mode = m.rawValue; done() } label: {
-                        Text(m.label).font(.system(size: Theme.fs(13), weight: .semibold)).foregroundStyle(Theme.text)
+                        Text(m.label).font(.system(size: Theme.fs(13), weight: .semibold))
+                            .foregroundStyle(m.rawValue == mode ? Theme.onSelected : Theme.text)
                             .frame(maxWidth: .infinity, minHeight: 70)
                             .background(m.rawValue == mode ? Theme.radioB : Theme.button, in: RoundedRectangle(cornerRadius: 3))
                             .overlay(RoundedRectangle(cornerRadius: 3).stroke(Theme.edge, lineWidth: Theme.lineWidth))
@@ -215,6 +260,7 @@ struct ConnectView: View {
             // Keep trying every few seconds, e.g. while the unit reboots.
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
+                discovery.start()   // no-op while listening; retries if the bind failed (port was busy)
                 client.autoReconnect(discovered: discovery.devices)
             }
         }
@@ -265,13 +311,11 @@ struct PanelView: View {
     @ObservedObject var showAbout: Box<Bool>
     @Binding var portMode: String
     let reselect: () -> Void
-    @Environment(\.openWindow) private var openWindow
     private var mode: PortMode { PortMode(rawValue: portMode) ?? .so2r }
-    @AppStorage("appearance") private var appearance = Appearance.light.rawValue
 
     var body: some View {
         VStack(spacing: 0) {
-            titleBar
+            TitleBar(showAbout: showAbout, reselect: reselect)
             if let err = client.lastError {
                 HStack(alignment: .top, spacing: 6) {
                     Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
@@ -295,31 +339,6 @@ struct PanelView: View {
             Text("Version \(AppInfo.version)").font(.system(size: Theme.fs(10))).foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity).padding(.bottom, 8)
         }
-    }
-
-    private var titleBar: some View {
-        HStack(spacing: 12) {
-            Spacer()
-            Menu {
-                Button("Settings…") { openWindow(id: "settings") }
-                Button("Port chooser…", action: reselect)
-                Picker("Appearance", selection: $appearance) {
-                    ForEach(Appearance.allCases) { Text($0.label).tag($0.rawValue) }
-                }
-                Button("Protocol log…") { openWindow(id: "log") }
-                Divider()
-                Button("About Antenna Genius…") { showAbout.value = true }
-                Divider()
-                Button("Disconnect") { client.autoConnect = false; client.disconnect() }
-                Button("Quit Antenna Genius") { AppDelegate.quit() }.keyboardShortcut("q")
-            } label: {
-                Image(systemName: "gearshape.fill").foregroundStyle(.gray)
-            }
-            .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-        }
-        .font(.system(size: Theme.fs(13), weight: .bold))
-        .padding(.horizontal, 8).padding(.vertical, 5)
-        .background(Theme.chrome.opacity(0.7))
     }
 }
 

@@ -1,7 +1,10 @@
 // Draws the app icon: swift tools/make_icon.swift Resources/AppIcon.icns Resources/logo.png
 import AppKit
 
-let logo = NSImage(contentsOfFile: CommandLine.arguments[2])!
+guard CommandLine.arguments.count == 3, let logo = NSImage(contentsOfFile: CommandLine.arguments[2]), logo.size.width > 0 else {
+    FileHandle.standardError.write(Data("usage: swift tools/make_icon.swift <out.icns> <logo.png>\n".utf8))
+    exit(2)
+}
 
 func render(_ px: Int) -> Data {
     let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: px, pixelsHigh: px, bitsPerSample: 8, samplesPerPixel: 4,
@@ -24,10 +27,14 @@ let out = CommandLine.arguments[1]
 let set = NSTemporaryDirectory() + "AppIcon.iconset"
 try? FileManager.default.removeItem(atPath: set)
 try! FileManager.default.createDirectory(atPath: set, withIntermediateDirectories: true)
+var cache: [Int: Data] = [:]   // 16@2x == 32, 128@2x == 256, 256@2x == 512: render each pixel size once
+func png(_ px: Int) -> Data { if let d = cache[px] { return d }; let d = render(px); cache[px] = d; return d }
 for base in [16, 32, 128, 256, 512] {
-    try! render(base).write(to: URL(fileURLWithPath: "\(set)/icon_\(base)x\(base).png"))
-    try! render(base * 2).write(to: URL(fileURLWithPath: "\(set)/icon_\(base)x\(base)@2x.png"))
+    try! png(base).write(to: URL(fileURLWithPath: "\(set)/icon_\(base)x\(base).png"))
+    try! png(base * 2).write(to: URL(fileURLWithPath: "\(set)/icon_\(base)x\(base)@2x.png"))
 }
 let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/bin/iconutil")
 p.arguments = ["-c", "icns", set, "-o", out]
 try! p.run(); p.waitUntilExit()
+try? FileManager.default.removeItem(atPath: set)
+if p.terminationStatus != 0 { FileHandle.standardError.write(Data("iconutil failed\n".utf8)); exit(1) }
