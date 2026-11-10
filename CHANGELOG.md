@@ -16,6 +16,7 @@ Discovery retries every few seconds if UDP 9007 was busy at launch, instead of s
 The port chooser is shown again when you connect to a different unit
 At band "None" only the RX band-mask check is skipped; TX is no longer sent to antennas whose TX mask excludes it
 The main panel is a single window (no File > New Window), since the port choice and device session are app-wide
+Selecting an antenna at band "None" whose TX mask excludes it now shows an "RX only" notice instead of silently leaving TX on the old antenna
 In Port A/B view the "in use by" hint ignores the radio that isn't shown
 
 ## 26.10.10

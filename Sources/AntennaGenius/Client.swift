@@ -133,7 +133,12 @@ final class AGClient: ObservableObject {
         if rxOK { cmd += " rxant=\(antenna)" }
         if txOK { cmd += " txant=\(antenna)" }
         let other = ports.first { $0.id != id && ($0.rxant == antenna || $0.txant == antenna) }
+        // Both were asked for but the TX mask refused TX: RX moves and the old TX antenna stays, so say so.
+        let rxOnly = rx && tx && rxOK && !txOK
         send(cmd) { [weak self] r in
+            if r.ok, rxOnly {
+                self?.lastError = "\(ant.name): RX only on Radio \(id == 1 ? "A" : "B"). TX isn't enabled for \(bandName), so TX stays on its previous antenna."
+            }
             if !r.ok, let other {
                 self?.lastError = "\(ant.name) is in use by Radio \(other.id == 1 ? "A" : "B"). The device refused to put both radios on it — release Radio \(other.id == 1 ? "A" : "B") first."
             }

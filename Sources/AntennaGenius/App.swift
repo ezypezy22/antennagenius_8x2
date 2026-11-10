@@ -68,7 +68,7 @@ struct AntennaGeniusApp: App {
             ContentView()
                 .environmentObject(discovery)
                 .environmentObject(client)
-                                .onAppear { discovery.start() }
+                .onAppear { discovery.start() }
         }
         .windowResizability(.contentSize)
 
