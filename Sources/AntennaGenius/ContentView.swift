@@ -50,6 +50,7 @@ struct TitleBar: View {
             Spacer()
             Menu {
                 Button("Settings…") { openWindow(id: "settings") }
+                Menu("Presets") { PresetMenuItems(client: client) }
                 if let reselect { Button("Port chooser…", action: reselect) }
                 Picker("Appearance", selection: $appearance) {
                     ForEach(Appearance.allCases) { Text($0.label).tag($0.rawValue) }

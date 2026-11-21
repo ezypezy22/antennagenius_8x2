@@ -50,7 +50,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 1) { _exit(0) }
     }
 
+    /// agenius:// links (Stream Deck, Shortcuts, scripts).
+    func application(_ application: NSApplication, open urls: [URL]) {
+        MainActor.assumeIsolated { urls.forEach(Automation.shared.handle) }
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        _ = Automation.shared   // start tracking the front app now, so a link can hand focus back
         UpdateChecker.shared.startSchedule()
         // Belt and braces: if the delegate hook above isn't honoured, quit when no real window remains.
         NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) { note in
@@ -89,11 +95,12 @@ struct AntennaGeniusApp: App {
                 .environmentObject(discovery)
                 .environmentObject(client)
                 .environmentObject(cat)
-                .onAppear { discovery.start(); cat.attach(client) }
+                .onAppear { discovery.start(); cat.attach(client); Automation.shared.client = client }
         }
         .windowResizability(.contentSize)
         .commands {
             AntennaCommands(client: client)
+            PresetCommands(client: client)
             UpdateCommands()
         }
 
@@ -108,6 +115,11 @@ struct AntennaGeniusApp: App {
             SettingsWindowRoot().environmentObject(client).environmentObject(cat)
         }
         .windowResizability(.contentMinSize)
+
+        Window("Presets", id: "presets") {
+            PresetsWindowRoot().environmentObject(client)
+        }
+        .defaultSize(width: 640, height: 360)
 
         Window("Protocol log", id: "log") {
             LogWindowRoot().environmentObject(client)

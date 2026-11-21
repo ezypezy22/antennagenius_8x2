@@ -69,6 +69,7 @@ struct AntennaCommands: Commands {
 /// Antenna switching from the menu bar, without bringing the panel forward.
 struct MenuBarContent: View {
     @EnvironmentObject var client: AGClient
+    @ObservedObject private var presets = PresetStore.shared
     @Environment(\.openWindow) private var openWindow
     @AppStorage("portMode") private var portMode = PortMode.so2r.rawValue
 
@@ -83,6 +84,10 @@ struct MenuBarContent: View {
                             if on { client.selectAntenna(port: t.port, antenna: a.id) } else { client.clearAntenna(port: t.port) }
                         }))
                 }
+                Divider()
+            }
+            if !presets.presets.isEmpty {
+                Menu("Presets") { PresetMenuItems(client: client) }
                 Divider()
             }
             if let err = client.lastError {

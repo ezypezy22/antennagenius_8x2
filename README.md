@@ -52,6 +52,25 @@ frequency from Hamlib `rigctld` (TCP, default port 4532, command `f`) or `flrig`
 device. Changes wait while the port transmits. It works only while the app is running; for rigctld, start it
 with your radio's model and serial port, e.g. `rigctld -m 3073 -r /dev/cu.usbserial-XXXX -s 19200`.
 
+## Presets and links
+
+Presets › Save Current Setup as Preset… stores each shown radio's RX and TX antennas (output relays to switch on
+can be added in Manage Presets…). The first nine presets are ⌥⌘1–⌥⌘9.
+
+The app handles `agenius://` links, so Stream Deck (Open or Website action), Shortcuts (Open URLs) and scripts
+(`open "agenius://…"`) can drive it:
+
+```
+agenius://select?radio=A&antenna=3       # antenna by number…
+agenius://select?radio=B&antenna=Yagi    # …or by name (case, spaces and _ ignored)
+agenius://release?radio=A
+agenius://preset?name=Contest
+```
+
+Focus returns to the app that was in front (e.g. the logger) unless the link adds `focus=1`. Presets and links
+never switch a radio that is transmitting. Native Shortcuts actions (App Intents) would need an Xcode build,
+since `swift build` doesn't produce the App Intents metadata.
+
 ## Tests
 
 `swift test` (needs XCTest, which comes with Xcode; the Command Line Tools alone do not include it).

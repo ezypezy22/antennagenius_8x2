@@ -37,6 +37,10 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <key>CFBundleShortVersionString</key><string>${VERSION}</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>NSHighResolutionCapable</key><true/>
+<key>CFBundleURLTypes</key><array><dict>
+    <key>CFBundleURLName</key><string>Antenna Genius link</string>
+    <key>CFBundleURLSchemes</key><array><string>agenius</string></array>
+</dict></array>
 <key>NSLocalNetworkUsageDescription</key><string>Finds and controls your 4O3A Antenna Genius on the local network.</string>
 </dict></plist>
 PLIST

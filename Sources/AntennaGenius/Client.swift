@@ -163,6 +163,19 @@ final class AGClient: ObservableObject {
         }
     }
 
+    /// RX and TX antennas at once (0 = none), as a preset stores them. The same antenna for both goes through
+    /// `selectAntenna`, which checks the band masks and explains a refusal.
+    func setAntennas(port id: Int, rx: Int, tx: Int) {
+        if rx == tx {
+            if rx == 0 { clearAntenna(port: id) } else { selectAntenna(port: id, antenna: rx) }
+            return
+        }
+        guard let p = ports.first(where: { $0.id == id }) else { return }
+        var cmd = "port set \(id)"
+        if p.source != "MANUAL" { cmd += " source=MANUAL" }
+        send(cmd + " rxant=\(rx) txant=\(tx)") { [weak self] _ in self?.refreshPort(id) }
+    }
+
     func clearAntenna(port id: Int) {
         send("port set \(id) rxant=0 txant=0") { [weak self] _ in self?.refreshPort(id) }
     }

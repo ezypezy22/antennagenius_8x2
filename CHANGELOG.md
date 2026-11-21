@@ -1,5 +1,13 @@
 # Changelog
 
+## 26.11.7
+
+### Enhancements
+
+Antenna presets: save each shown radio's RX and TX antennas under a name (Presets › Save Current Setup as Preset…), optionally with output relays to switch on, and apply them from the Presets menu (⌥⌘1–⌥⌘9 for the first nine), the gear menu or the menu bar; Presets › Manage Presets… renames, reorders, deletes and picks outputs
+Links for Stream Deck, Shortcuts and scripts: agenius://select?radio=A&antenna=3 (number or name), agenius://release?radio=B and agenius://preset?name=Contest; each preset has Copy Link. Focus goes back to the app you were using unless the link adds focus=1, and a link that arrives before the device is connected waits up to 30 seconds
+Presets and links never switch a radio that is transmitting; they say so instead
+
 ## 26.11.6
 
 ### Enhancements
