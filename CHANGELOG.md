@@ -1,5 +1,22 @@
 # Changelog
 
+## 26.11.3
+
+### Enhancements
+
+Remote access: a unit reached over the internet (it greets with AUTH) asks for its remote access password, logs in with it and keeps it in the Keychain; a wrong password is forgotten and asked for again
+The connect screen accepts a host name (e.g. a dynamic DNS name) as well as an IPv4 address
+Universal app: one DMG runs on Apple silicon and Intel Macs
+Check for Updates… in the app menu and the gear menu; the app also checks GitHub once a day and offers the release page when a newer version is out (turn off with "Check for updates automatically")
+make_dmg.sh signs with a Developer ID and notarizes when SIGN_IDENTITY and NOTARY_PROFILE are set
+New bundle identifier io.github.ezypezy22.antennagenius; settings from earlier versions are carried over on first launch, but macOS asks for Local Network access once more
+Tests and the universal build run on GitHub Actions
+
+### Bug Fixes
+
+The session starts only after the device's greeting (or after 5 seconds without one), so no command is sent before a remote login is accepted
+The protocol log hides the password in auth code=… as well as in auth=…
+
 ## 26.11.2
 
 ### Enhancements

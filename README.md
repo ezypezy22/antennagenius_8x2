@@ -9,15 +9,39 @@ a panel modelled on the Windows utility plus a Settings window.
 Requires the Swift toolchain (Command Line Tools are enough; no Xcode project).
 
 ```
-./bundle.sh      # build/AntennaGenius.app
-./make_dmg.sh    # build/AntennaGenius.dmg
+./bundle.sh      # build/AntennaGenius.app (universal: Apple silicon and Intel)
+./make_dmg.sh    # dist/AntennaGenius-<version>-macos-universal.dmg
 ```
 
 macOS asks for Local Network access on first launch; allow it or discovery will not work.
 
+### Signing and notarization
+
+Without a certificate the app is signed ad hoc, and Gatekeeper on other Macs blocks it: open it once, then
+choose Open Anyway in System Settings › Privacy & Security. To ship a build that opens normally, use a
+Developer ID Application certificate and a notarytool keychain profile:
+
+```
+xcrun notarytool store-credentials AG --apple-id you@example.com --team-id TEAMID --password <app-specific password>
+SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" NOTARY_PROFILE=AG ./make_dmg.sh
+```
+
+### Releases and update checks
+
+The app checks the GitHub releases of this repository once a day (it can be turned off in the gear menu)
+and offers the release page when a newer version is out. It reads the version from the release tag, or else
+from the DMG file name, so keep `AntennaGenius-<version>-…dmg` as the asset name.
+
+## Remote access
+
+A unit reached from outside its LAN (by typing its address or host name on the connect screen) greets the
+app with `AUTH`. The app then asks for the unit's remote access password (set under Settings › Network),
+logs in with `auth code=…` and keeps the password in the login Keychain.
+
 ## Tests
 
 `swift test` (needs XCTest, which comes with Xcode; the Command Line Tools alone do not include it).
+GitHub Actions runs the tests and the universal build on every push to main and on pull requests.
 
 ## Protocol notes (firmware 4.1.19)
 

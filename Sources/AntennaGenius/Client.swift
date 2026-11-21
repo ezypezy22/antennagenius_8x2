@@ -42,6 +42,8 @@ final class AGClient: ObservableObject {
     @Published private(set) var stackPeers: [StackPeer] = []
     @Published private(set) var network: NetworkConfig?
     @Published var lastError: String?
+    /// Set when a unit reached over the internet asks for its remote access password and none (or a wrong one) is saved.
+    @Published private(set) var passwordNeeded: DiscoveredDevice?
     /// Cleared when the user disconnects on purpose, so we don't immediately reconnect.
     var autoConnect = true
     /// The device we were last connected to; used to reconnect after a reboot or network change.
@@ -60,6 +62,9 @@ final class AGClient: ObservableObject {
     private var waitTimer: Timer?
     private var isWaiting = false
     private var waitingReason = ""
+    /// Between TCP ready and the session starting: the device's greeting line, and the login if it asks for one.
+    private var gotPrologue = false
+    private var handshakeTimer: Timer?
     /// Command text and send time per sequence number, so a reply that never comes can be given up on.
     private var sentAt: [Int: (cmd: String, at: Date)] = [:]
     private var lastReceived = Date.distantPast
@@ -75,6 +80,8 @@ final class AGClient: ObservableObject {
         lastDevice = device
         connectedDevice = device
         lastError = nil
+        passwordNeeded = nil
+        gotPrologue = false
         portCount = max(device.ports, 1)
         ports = (1...max(device.ports, 1)).map { PortState(id: $0) }
         antennas = (1...max(device.antennas, 1)).map { AntennaInfo(id: $0, name: "Antenna \($0)", tx: 0, rx: 0, inband: 0) }
@@ -114,6 +121,7 @@ final class AGClient: ObservableObject {
 
     func disconnect() {
         pingTimer?.invalidate(); pingTimer = nil
+        handshakeTimer?.invalidate(); handshakeTimer = nil
         stopWaiting()
         conn?.cancel(); conn = nil
         buffer.removeAll(); pending.removeAll(); listAccumulator.removeAll(); listDone.removeAll()
@@ -345,7 +353,15 @@ final class AGClient: ObservableObject {
         switch s {
         case .ready:
             stopWaiting()
-            if state != .connected { state = .connected; bootstrap() }
+            guard state == .connecting, handshakeTimer == nil else { break }
+            // The device greets every client with `V<version> AG[ AUTH]`. Without a greeting, go ahead as before.
+            handshakeTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: false) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self, self.state == .connecting else { return }
+                    if self.gotPrologue { self.fail("The device didn't answer the remote access login.") }
+                    else { self.startSession() }
+                }
+            }
         case .failed(let e):
             fail(e.localizedDescription)
         case .waiting(let e):
@@ -378,8 +394,54 @@ final class AGClient: ObservableObject {
     private func fail(_ reason: String) {
         stopWaiting()
         pingTimer?.invalidate(); pingTimer = nil
+        handshakeTimer?.invalidate(); handshakeTimer = nil
         conn?.cancel(); conn = nil
         state = .failed(reason)
+    }
+
+    private func startSession() {
+        handshakeTimer?.invalidate(); handshakeTimer = nil
+        stopWaiting()
+        guard state != .connected else { return }
+        state = .connected
+        bootstrap()
+    }
+
+    /// `AUTH` in the greeting means the connection came from outside the unit's LAN: nothing works until
+    /// `auth code=<remote access password>` is accepted.
+    private func logIn() {
+        guard let d = connectedDevice else { return }
+        guard let pw = Keychain.password(for: d.serial), !pw.isEmpty, NetworkConfig.isSafeToken(pw) else {
+            askForPassword(d, "This unit is reached over the internet and needs its remote access password.")
+            return
+        }
+        send("auth code=\(pw)") { [weak self] r in
+            guard let self else { return }
+            if r.ok { self.startSession(); return }
+            Keychain.deletePassword(for: d.serial)
+            self.askForPassword(d, "The remote access password was not accepted.")
+        }
+    }
+
+    /// Drops the connection and waits for the user; retrying on its own would only repeat the refusal.
+    private func askForPassword(_ d: DiscoveredDevice, _ why: String) {
+        autoConnect = false
+        fail(why)
+        lastError = nil
+        passwordNeeded = d
+    }
+
+    /// Saves the password in the Keychain and connects again with it.
+    func submitPassword(_ pw: String) {
+        guard let d = passwordNeeded else { return }
+        Keychain.setPassword(pw, for: d.serial)
+        autoConnect = true
+        connect(to: d)
+    }
+
+    func cancelPasswordPrompt() {
+        passwordNeeded = nil
+        state = .disconnected
     }
 
     private func bootstrap() {
@@ -498,7 +560,8 @@ final class AGClient: ObservableObject {
         }
     }
 
-    private func ingest(_ data: Data) {
+    /// Bytes from the device. Internal (not private) so tests can play the device's side.
+    func ingest(_ data: Data) {
         buffer.append(data)
         while let idx = buffer.firstIndex(where: { $0 == 0x0D || $0 == 0x0A }) {
             let lineData = buffer[buffer.startIndex..<idx]
@@ -515,8 +578,11 @@ final class AGClient: ObservableObject {
         if case .response(let r) = parsed, quiet.remove(r.seq) != nil, r.ok { skipLog = true }
         if !skipLog { appendLog("← \(line)") }
         switch parsed {
-        case .prologue(let v, _):
+        case .prologue(let v, let auth):
             firmware = v
+            guard state == .connecting, !gotPrologue else { break }
+            gotPrologue = true
+            if auth { logIn() } else { startSession() }
         case .response(let r):
             if listAccumulator[r.seq] != nil {
                 if r.message.isEmpty || !r.ok {
@@ -560,9 +626,9 @@ final class AGClient: ObservableObject {
         if let src = kv["source"], src != "MANUAL" { followSource[id] = src }
     }
 
-    /// Hides the remote access password anywhere a command or reply is shown.
+    /// Hides the remote access password anywhere a command or reply is shown (`network … auth=`, `auth code=`).
     static func masked(_ s: String) -> String {
-        s.replacingOccurrences(of: #"auth=\S+"#, with: "auth=***", options: .regularExpression)
+        s.replacingOccurrences(of: #"\b(auth|code)=\S+"#, with: "$1=***", options: .regularExpression)
     }
 
     private func appendLog(_ s: String) { logStore.append(Self.masked(s)) }

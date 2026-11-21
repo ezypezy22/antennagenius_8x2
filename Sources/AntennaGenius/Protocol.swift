@@ -143,6 +143,17 @@ struct NetworkConfig: Equatable {
         let p = s.split(separator: ".", omittingEmptySubsequences: false)
         return p.count == 4 && p.allSatisfy { Int($0).map { (0...255).contains($0) } ?? false }
     }
+
+    /// An IPv4 address or a DNS name (e.g. a dynamic DNS name for remote access): letters, digits, `-` and dots.
+    static func validHost(_ s: String) -> Bool {
+        if validIPv4(s) { return true }
+        let labels = s.split(separator: ".", omittingEmptySubsequences: false)
+        guard s.count <= 253, labels.contains(where: { $0.contains { $0.isLetter } }) else { return false }
+        return labels.allSatisfy { l in
+            (1...63).contains(l.count) && l.first != "-" && l.last != "-"
+                && l.allSatisfy { ($0.isASCII && ($0.isLetter || $0.isNumber)) || $0 == "-" }
+        }
+    }
 }
 
 struct StackConfig: Equatable {

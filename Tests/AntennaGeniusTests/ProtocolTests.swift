@@ -95,6 +95,19 @@ final class ValidationTests: XCTestCase {
         XCTAssertFalse(NetworkConfig.validIPv4("10.43.10.59 extra"))
     }
 
+    func testHost() {
+        XCTAssertTrue(NetworkConfig.validHost("10.43.10.59"))
+        XCTAssertTrue(NetworkConfig.validHost("ag.example.net"))
+        XCTAssertTrue(NetworkConfig.validHost("my-shack.dyndns.org"))
+        XCTAssertTrue(NetworkConfig.validHost("localhost"))
+        XCTAssertFalse(NetworkConfig.validHost(""))
+        XCTAssertFalse(NetworkConfig.validHost("10.43.10"), "a short dotted number is a typo, not a name")
+        XCTAssertFalse(NetworkConfig.validHost("bad host"))
+        XCTAssertFalse(NetworkConfig.validHost("-x.example.net"))
+        XCTAssertFalse(NetworkConfig.validHost("a..b"))
+        XCTAssertFalse(NetworkConfig.validHost("a|b"))
+    }
+
     func testSafeToken() {
         XCTAssertTrue(NetworkConfig.isSafeToken("abc123"))
         XCTAssertFalse(NetworkConfig.isSafeToken("a b"))
@@ -116,6 +129,7 @@ final class ClientTextTests: XCTestCase {
 
     func testPasswordIsMasked() {
         XCTAssertEqual(AGClient.masked("network set dhcp=1 auth=Secret123"), "network set dhcp=1 auth=***")
+        XCTAssertEqual(AGClient.masked("C7|auth code=123456"), "C7|auth code=***")
         XCTAssertEqual(AGClient.masked("port set 1 rxant=2"), "port set 1 rxant=2")
     }
 
