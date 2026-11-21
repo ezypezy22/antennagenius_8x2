@@ -103,7 +103,7 @@ struct PortState: Equatable {
     }
 }
 
-struct AntennaInfo: Identifiable, Equatable {
+struct AntennaInfo: Identifiable, Equatable, Codable {
     let id: Int
     var name: String
     var tx: Int      // band masks, bit n = band n
@@ -111,7 +111,7 @@ struct AntennaInfo: Identifiable, Equatable {
     var inband: Int
 }
 
-struct BandInfo: Identifiable, Equatable {
+struct BandInfo: Identifiable, Equatable, Codable {
     let id: Int
     var name: String
     var freqStart = "0.000000"
@@ -168,7 +168,7 @@ struct StackPeer: Identifiable, Equatable {
 }
 
 /// An output group: its outputs follow either the selected antenna (ANT) or the selected band (BAND).
-struct OutputGroup: Identifiable, Equatable {
+struct OutputGroup: Identifiable, Equatable, Codable {
     let id: Int
     var inUse = false
     var name = ""
@@ -192,7 +192,7 @@ struct OutputGroup: Identifiable, Equatable {
 }
 
 /// A relay output: `state` is the bitmask of the 8 relays switched on when it is active.
-struct OutputDef: Identifiable, Equatable {
+struct OutputDef: Identifiable, Equatable, Codable {
     let id: Int
     var inUse = false
     var group = 0
@@ -216,7 +216,7 @@ struct OutputDef: Identifiable, Equatable {
 }
 
 /// Per-port FlexRadio integration: which radio the port is bound to, which antenna jack it uses and where PTT comes from.
-struct FlexPortConfig: Equatable {
+struct FlexPortConfig: Equatable, Codable {
     var serial = ""
     var ant = "ANT1"     // ANT1, ANT2 or XVRT
     var ptt = "LAN"      // LAN or RCA

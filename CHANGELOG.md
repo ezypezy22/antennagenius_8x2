@@ -1,5 +1,18 @@
 # Changelog
 
+## 26.11.2
+
+### Enhancements
+
+Menu bar icon showing each radio's current antenna; its menu switches antennas, shows the band and any error, and can be hidden with "Show in menu bar" in the gear menu
+Antenna menu with keyboard shortcuts: ⌘1–⌘8 route Radio A and ⇧⌘1–⇧⌘8 Radio B (⌘ alone in Port A or Port B view); ⌘0 / ⇧⌘0 release
+Back up and restore the device configuration (name, in-band port, antennas, bands, output relays, FlexRadio ports) to a JSON file from Settings › Advanced; restore asks first, sends only what differs and leaves network and stacking settings alone
+
+### Bug Fixes
+
+A device that stops answering (power loss, cable pulled) is now noticed within about 5 seconds and the app reconnects, instead of showing stale antenna states until TCP gives up
+A command whose reply never arrives is abandoned after 5 seconds with a message, so a late reply can't be mistaken for a newer command's
+
 ## 26.11.1
 
 ### Enhancements

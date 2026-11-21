@@ -60,6 +60,14 @@ final class AGClient: ObservableObject {
     private var waitTimer: Timer?
     private var isWaiting = false
     private var waitingReason = ""
+    /// Command text and send time per sequence number, so a reply that never comes can be given up on.
+    private var sentAt: [Int: (cmd: String, at: Date)] = [:]
+    private var lastReceived = Date.distantPast
+    /// The device answers a ping every second; this much silence means it or the path to it is gone,
+    /// even though TCP may not notice for minutes.
+    private static let silenceLimit: TimeInterval = 5
+    /// A reply this late never comes, and its sequence number is reused every few minutes.
+    private static let replyTimeout: TimeInterval = 5
 
     func connect(to device: DiscoveredDevice) {
         disconnect()
@@ -108,7 +116,8 @@ final class AGClient: ObservableObject {
         pingTimer?.invalidate(); pingTimer = nil
         stopWaiting()
         conn?.cancel(); conn = nil
-        buffer.removeAll(); pending.removeAll(); listAccumulator.removeAll(); quiet.removeAll()
+        buffer.removeAll(); pending.removeAll(); listAccumulator.removeAll(); listDone.removeAll()
+        quiet.removeAll(); sentAt.removeAll()
         if state != .disconnected { state = .disconnected }
         connectedDevice = nil
     }
@@ -375,8 +384,9 @@ final class AGClient: ObservableObject {
 
     private func bootstrap() {
         send("keepalive enable")
+        lastReceived = Date()
         pingTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.send("ping", quiet: true) }
+            MainActor.assumeIsolated { self?.tick() }
         }
         send("sub port all")
         send("sub relay")
@@ -422,11 +432,31 @@ final class AGClient: ObservableObject {
         }
     }
 
+    /// Runs once a second while connected: drops a silent connection, gives up on overdue replies, pings.
+    private func tick() {
+        let now = Date()
+        if now.timeIntervalSince(lastReceived) > Self.silenceLimit {
+            fail("The device stopped responding.")
+            return
+        }
+        for (s, req) in sentAt where now.timeIntervalSince(req.at) > Self.replyTimeout {
+            expire(s, cmd: req.cmd)
+        }
+        send("ping", quiet: true)
+    }
+
+    /// Forgets a request whose reply never came, so a late reply or a reused sequence number can't be misread.
+    private func expire(_ s: Int, cmd: String) {
+        sentAt[s] = nil; pending[s] = nil; listAccumulator[s] = nil; listDone[s] = nil
+        if quiet.remove(s) == nil { lastError = "“\(Self.masked(cmd))” got no reply from the device." }
+    }
+
     /// Sends a command whose reply is a series of `R<seq>|0|<row>` lines terminated by an empty row.
     private func sendList(_ cmd: String, done: @escaping ([String]) -> Void) {
         let s = nextSeq()
         listAccumulator[s] = []
         pending[s] = { _ in }
+        sentAt[s] = (cmd, Date())
         write("C\(s)|\(cmd)")
         listDone[s] = done
     }
@@ -439,11 +469,13 @@ final class AGClient: ObservableObject {
             if !r.ok { self?.lastError = "“\(Self.masked(cmd))” rejected by device (0x\(String(r.code, radix: 16)))" }
             reply?(r)
         }
+        sentAt[s] = (cmd, Date())
         write("C\(s)|\(cmd)")
     }
 
+    /// Skips numbers still awaiting a reply (only possible if 255 requests are outstanding at once).
     private func nextSeq() -> Int {
-        seq = seq % 255 + 1
+        repeat { seq = seq % 255 + 1 } while pending[seq] != nil && pending.count < 255
         return seq
     }
 
@@ -477,6 +509,7 @@ final class AGClient: ObservableObject {
     }
 
     private func dispatch(_ line: String) {
+        lastReceived = Date()
         let parsed = AGProtocol.parse(line: line)
         var skipLog = false
         if case .response(let r) = parsed, quiet.remove(r.seq) != nil, r.ok { skipLog = true }
@@ -487,14 +520,17 @@ final class AGClient: ObservableObject {
         case .response(let r):
             if listAccumulator[r.seq] != nil {
                 if r.message.isEmpty || !r.ok {
+                    sentAt[r.seq] = nil
                     let rows = listAccumulator.removeValue(forKey: r.seq) ?? []
                     pending[r.seq] = nil
                     let done = listDone.removeValue(forKey: r.seq)
                     if r.ok { done?(rows) }   // on error keep the data we already have
                 } else {
                     listAccumulator[r.seq]?.append(r.message)
+                    sentAt[r.seq]?.at = Date()   // a long list is still arriving, not overdue
                 }
             } else if let cb = pending.removeValue(forKey: r.seq) {
+                sentAt[r.seq] = nil
                 cb(r)
             }
         case .status(let msg):

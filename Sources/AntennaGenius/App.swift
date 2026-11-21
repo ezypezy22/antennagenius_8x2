@@ -61,6 +61,7 @@ struct AntennaGeniusApp: App {
 
     @StateObject private var discovery = Discovery()
     @StateObject private var client = AGClient()
+    @AppStorage("showMenuBar") private var showMenuBar = true
 
     var body: some Scene {
         // A single-instance Window (not WindowGroup): the port choice and device session are app-wide, so no second window.
@@ -71,6 +72,13 @@ struct AntennaGeniusApp: App {
                 .onAppear { discovery.start() }
         }
         .windowResizability(.contentSize)
+        .commands { AntennaCommands(client: client) }
+
+        MenuBarExtra(isInserted: $showMenuBar) {
+            MenuBarContent().environmentObject(client)
+        } label: {
+            MenuBarLabel().environmentObject(client)
+        }
 
         // Real windows (not sheets) so they can be moved, left open beside the panel, and resized.
         Window("Antenna Genius Settings", id: "settings") {

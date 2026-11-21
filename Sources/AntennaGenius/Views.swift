@@ -116,6 +116,7 @@ struct TitleBar: View {
     let reselect: (() -> Void)?
     @Environment(\.openWindow) private var openWindow
     @AppStorage("appearance") private var appearance = Appearance.light.rawValue
+    @AppStorage("showMenuBar") private var showMenuBar = true
 
     var body: some View {
         HStack(spacing: 12) {
@@ -127,6 +128,7 @@ struct TitleBar: View {
                     ForEach(Appearance.allCases) { Text($0.label).tag($0.rawValue) }
                 }
                 Button("Protocol log…") { openWindow(id: "log") }
+                Toggle("Show in menu bar", isOn: $showMenuBar)
                 Divider()
                 Button("About Antenna Genius…") { showAbout.value = true }
                 Divider()
@@ -535,6 +537,9 @@ final class SettingsModel: ObservableObject {
     @Published var editingAntenna: Int?
     @Published var bands: [BandInfo] = []
     @Published var flex: [Int: FlexPortConfig] = [:]
+    /// A backup file the user picked, awaiting confirmation before it is sent to the device.
+    @Published var restoreFrom: DeviceBackup?
+    @Published var confirmRestore = false
     private var loaded = false
 
     @MainActor func load(from c: AGClient) {
@@ -877,6 +882,17 @@ struct AdvancedPage: View {
             }
             Text("Reboot takes the device offline for about 20 seconds. Factory defaults erase antenna names and band assignments, band ranges and network settings.")
                 .font(.caption).foregroundStyle(.secondary)
+            Divider().padding(.vertical, 4)
+            HStack {
+                Button("Back up settings…") { BackupFile.save(client.makeBackup()) }
+                Button("Restore from backup…") {
+                    guard let b = BackupFile.open() else { return }
+                    model.restoreFrom = b
+                    model.confirmRestore = true
+                }
+            }
+            Text("A backup holds the device name, antennas, bands, output relays and FlexRadio ports. Network and stacking settings are not included.")
+                .font(.caption).foregroundStyle(.secondary)
         }
         .padding(12)
         .confirmationDialog("Reboot the Antenna Genius?", isPresented: $model.confirmReboot, titleVisibility: .visible) {
@@ -887,6 +903,27 @@ struct AdvancedPage: View {
             Button("Erase and restore defaults", role: .destructive) { client.factoryReset(); close() }
             Button("Cancel", role: .cancel) {}
         } message: { Text("This erases all configuration on the device, including its network settings, and reboots it. It cannot be undone.") }
+        .confirmationDialog("Restore settings from this backup?", isPresented: $model.confirmRestore, titleVisibility: .visible) {
+            Button("Restore") {
+                if let b = model.restoreFrom { client.restore(b) }
+                model.restoreFrom = nil
+                close()   // the open edits are now stale
+            }
+            Button("Cancel", role: .cancel) { model.restoreFrom = nil }
+        } message: { Text(restoreMessage) }
+    }
+}
+
+extension AdvancedPage {
+    private var restoreMessage: String {
+        guard let b = model.restoreFrom else { return "" }
+        var text = "Saved \(b.created.formatted(date: .abbreviated, time: .shortened))"
+        if !b.name.isEmpty { text += " from “\(b.name)”" }
+        text += ". Antenna, band, output relay and FlexRadio settings that differ will be overwritten. Unsaved edits in this window are discarded."
+        if !b.serial.isEmpty, let s = client.connectedDevice?.serial, s != b.serial {
+            text += "\n\nThis backup is from a different unit (serial \(b.serial))."
+        }
+        return text
     }
 }
 
