@@ -8,13 +8,22 @@ set -euo pipefail
 cd "$(dirname "$0")"
 VERSION="$(tr -d '[:space:]' < VERSION)"
 BUILD_NUM="${VERSION##*.}"
-ARCHS=(--arch arm64 --arch x86_64)
-swift build -c release $ARCHS
-BIN="$(swift build -c release $ARCHS --show-bin-path)/AntennaGenius"
+# One build per architecture, joined with lipo: a single multi-arch `swift build` goes through XCBuild,
+# which in some Xcode versions rejects the Swift 5 language mode set in Package.swift.
+# Each slice is copied out at once, since some toolchains build both architectures into the same folder.
+mkdir -p build
+SLICES=()
+for arch in arm64 x86_64; do
+    swift build -c release --arch $arch
+    cp "$(swift build -c release --arch $arch --show-bin-path)/AntennaGenius" "build/AntennaGenius-$arch"
+    SLICES+=("build/AntennaGenius-$arch")
+done
+BIN=build/AntennaGenius-universal
+lipo -create $SLICES -output "$BIN"
 APP=build/AntennaGenius.app
 rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp Resources/AppIcon.icns "$APP/Contents/Resources/"
-cp "$BIN" "$APP/Contents/MacOS/"
+cp "$BIN" "$APP/Contents/MacOS/AntennaGenius"
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
