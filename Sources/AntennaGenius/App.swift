@@ -51,7 +51,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        Task { await UpdateChecker.shared.checkAutomatically() }
+        UpdateChecker.shared.startSchedule()
         // Belt and braces: if the delegate hook above isn't honoured, quit when no real window remains.
         NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) { note in
             // Closing the main panel ends the app even if Settings or the log window is still open.

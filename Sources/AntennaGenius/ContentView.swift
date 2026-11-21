@@ -9,17 +9,21 @@ struct ContentView: View {
     @StateObject private var chosenFor = Box<String?>(nil)   // serial of the unit the port choice was made for
     @AppStorage("appearance") private var appearance = Appearance.light.rawValue
     @AppStorage("portMode") private var portMode = PortMode.so2r.rawValue
+    @ObservedObject private var updates = UpdateChecker.shared
 
     var body: some View {
         let _ = Appearance.apply(appearance)
-        Group {
-            if client.state == .connected && client.connectedDevice?.serial != chosenFor.value {
-                PortChooser(mode: $portMode, showAbout: showAbout, done: { chosenFor.value = client.connectedDevice?.serial })
-            } else if client.state == .connected {
-                PanelView(showAbout: showAbout, portMode: $portMode, reselect: { chosenFor.value = nil })
-            } else {
-                ConnectView()
+        VStack(spacing: 0) {
+            Group {
+                if client.state == .connected && client.connectedDevice?.serial != chosenFor.value {
+                    PortChooser(mode: $portMode, showAbout: showAbout, done: { chosenFor.value = client.connectedDevice?.serial })
+                } else if client.state == .connected {
+                    PanelView(showAbout: showAbout, portMode: $portMode, reselect: { chosenFor.value = nil })
+                } else {
+                    ConnectView()
+                }
             }
+            if let r = updates.available { UpdateBanner(release: r) }
         }
         .frame(width: client.state == .connected ? Theme.fs(230) : 320)
         .background(Theme.window)

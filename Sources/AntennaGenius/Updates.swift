@@ -1,9 +1,10 @@
 import AppKit
 import SwiftUI
 
-/// Looks for a newer release on GitHub: once a day at launch (unless turned off), and from the menu.
+/// Looks for a newer release on GitHub: at launch and every 24 hours while running (unless turned off), and
+/// from the menu. A newer release stays in `available`, which the main window shows as a banner until it is installed.
 @MainActor
-final class UpdateChecker {
+final class UpdateChecker: ObservableObject {
     static let shared = UpdateChecker()
     private static let releasesAPI = URL(string: "https://api.github.com/repos/ezypezy22/antennagenius_8x2/releases?per_page=20")!
 
@@ -12,12 +13,23 @@ final class UpdateChecker {
         let page: URL
     }
 
+    /// A release newer than this copy, once a check has found one.
+    @Published private(set) var available: Release?
     private var busy = false
+    private var timer: Timer?
+    /// Versions already offered in a pop-up this run, so the 24-hour check doesn't ask again; the banner stays.
+    private var offered: Set<String> = []
 
-    func checkAutomatically() async {
-        let d = UserDefaults.standard
-        guard d.object(forKey: "checkForUpdates") as? Bool ?? true else { return }
-        if let last = d.object(forKey: "lastUpdateCheck") as? Date, Date().timeIntervalSince(last) < 86_400 { return }
+    /// Checks now and then every 24 hours for as long as the app runs.
+    func startSchedule() {
+        Task { await checkAutomatically() }
+        timer = Timer.scheduledTimer(withTimeInterval: 86_400, repeats: true) { _ in
+            Task { @MainActor in await UpdateChecker.shared.checkAutomatically() }
+        }
+    }
+
+    private func checkAutomatically() async {
+        guard UserDefaults.standard.object(forKey: "checkForUpdates") as? Bool ?? true else { return }
         await check(userInitiated: false)
     }
 
@@ -28,7 +40,6 @@ final class UpdateChecker {
         let latest: Release?
         do {
             latest = try await fetchLatest()
-            UserDefaults.standard.set(Date(), forKey: "lastUpdateCheck")
         } catch {
             if userInitiated { alert("Couldn't check for updates", error.localizedDescription) }
             return
@@ -37,8 +48,11 @@ final class UpdateChecker {
             if userInitiated { alert("You're up to date", "Antenna Genius \(AppInfo.version) is the newest version.") }
             return
         }
-        // A version the user chose to skip only comes back when they ask.
-        if !userInitiated, UserDefaults.standard.string(forKey: "skippedVersion") == latest.version { return }
+        available = latest
+        // Skipped, or already offered this run: only the banner, unless the user asked.
+        if !userInitiated, UserDefaults.standard.string(forKey: "skippedVersion") == latest.version
+            || offered.contains(latest.version) { return }
+        offered.insert(latest.version)
         offer(latest, userInitiated: userInitiated)
     }
 
@@ -89,13 +103,13 @@ final class UpdateChecker {
     private func offer(_ r: Release, userInitiated: Bool) {
         let a = NSAlert()
         a.messageText = "Antenna Genius \(r.version) is available"
-        a.informativeText = "You have \(AppInfo.version). The release page has the download and what changed."
+        a.informativeText = "You have \(AppInfo.version). The release page has the download and what changed. Until you install it, the main window shows that an update is available."
         a.addButton(withTitle: "Open Release Page")
         a.addButton(withTitle: "Later")
         if !userInitiated { a.addButton(withTitle: "Skip This Version") }
         switch a.runModal() {
         case .alertFirstButtonReturn: NSWorkspace.shared.open(r.page)
-        case .alertThirdButtonReturn: UserDefaults.standard.set(r.version, forKey: "skippedVersion")
+        case .alertThirdButtonReturn: UserDefaults.standard.set(r.version, forKey: "skippedVersion")   // no more pop-ups for it
         default: break
         }
     }
@@ -105,6 +119,25 @@ final class UpdateChecker {
         a.messageText = title
         a.informativeText = text
         a.runModal()
+    }
+}
+
+/// Shown at the bottom of the main window while a newer release is available.
+struct UpdateBanner: View {
+    let release: UpdateChecker.Release
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "arrow.down.circle.fill").foregroundStyle(Theme.radioB)
+            Text("Version \(release.version) is available").font(.system(size: Theme.fs(11), weight: .semibold))
+                .foregroundStyle(Theme.text).lineLimit(1).minimumScaleFactor(0.8)
+            Spacer(minLength: 4)
+            Button("Get") { NSWorkspace.shared.open(release.page) }.controlSize(.small)
+        }
+        .padding(.horizontal, 8).padding(.vertical, 5)
+        .frame(maxWidth: .infinity)
+        .background(Theme.chrome)
+        .help("Opens the release page for Antenna Genius \(release.version)")
     }
 }
 

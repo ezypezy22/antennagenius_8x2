@@ -28,8 +28,9 @@ SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" NOTARY_PROFILE=AG .
 
 ### Releases and update checks
 
-The app checks the GitHub releases of this repository once a day (it can be turned off in the gear menu)
-and offers the release page when a newer version is out. It reads the version from the release tag, or else
+The app checks the GitHub releases of this repository at launch and every 24 hours while it runs (it can be
+turned off in the gear menu). When a newer version is out it offers the release page once, and the main window
+shows an "available" banner until that version is installed, even after Later or Skip This Version. It reads the version from the release tag, or else
 from the DMG file name, so keep `AntennaGenius-<version>-…dmg` as the asset name.
 
 ## Remote access

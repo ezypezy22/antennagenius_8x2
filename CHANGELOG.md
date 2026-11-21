@@ -1,5 +1,15 @@
 # Changelog
 
+## 26.11.5
+
+### Enhancements
+
+When a newer version is out, the main window shows "Version … is available" with a Get button until it is installed, also after choosing Later or Skip This Version (Skip only stops the pop-up for that version)
+
+### Bug Fixes
+
+Updates are checked at every launch and every 24 hours while the app runs, instead of at most once a day at launch, which could hide a new release for up to a day and never checked while the app stayed open
+
 ## 26.11.4
 
 ### Enhancements
