@@ -37,6 +37,8 @@ from the DMG file name, so keep `AntennaGenius-<version>-…dmg` as the asset na
 A unit reached from outside its LAN (by typing its address or host name on the connect screen) greets the
 app with `AUTH`. The app then asks for the unit's remote access password (set under Settings › Network),
 logs in with `auth code=…` and keeps the password in the login Keychain.
+A new password set from the app must be at least 12 characters with upper and lower case, a digit and a
+symbol; printable ASCII only, without `|` or `=`, which the command syntax can't carry.
 
 ## Tests
 

@@ -40,6 +40,8 @@ final class SettingsModel: ObservableObject {
     /// A backup file the user picked, awaiting confirmation before it is sent to the device.
     @Published var restoreFrom: DeviceBackup?
     @Published var confirmRestore = false
+    /// Second entry of a new remote access password.
+    @Published var authConfirm = ""
     private var loaded = false
 
     @MainActor func load(from c: AGClient) {
@@ -138,6 +140,18 @@ struct SettingsView: View {
                 return
             }
         }
+        if n.auth != (client.network?.auth ?? "") {
+            guard PasswordPolicy.isAcceptable(n.auth) else {
+                model.validation = "The new remote access password doesn't meet the requirements listed on the Network page."
+                model.page = .network
+                return
+            }
+            guard n.auth == model.authConfirm else {
+                model.validation = "The two remote access passwords don't match."
+                model.page = .network
+                return
+            }
+        }
         if !NetworkConfig.isSafeToken(n.auth) {
             model.validation = "The remote access password can't contain spaces or control characters."
             model.page = .network
@@ -209,7 +223,10 @@ struct InfoPage: View {
 }
 
 struct NetworkPage: View {
+    @EnvironmentObject var client: AGClient
     @ObservedObject var model: SettingsModel
+    private var changed: Bool { model.net.auth != (client.network?.auth ?? "") }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Toggle("Obtain an IP address automatically (DHCP)", isOn: $model.net.dhcp)
@@ -222,10 +239,66 @@ struct NetworkPage: View {
             Divider().padding(.vertical, 4)
             Grid(alignment: .leading, horizontalSpacing: 12) {
                 GridRow { Text("Remote access password"); SecureField("", text: $model.net.auth).textFieldStyle(.roundedBorder).frame(width: 200) }
+                if changed {
+                    GridRow { Text("Confirm password"); SecureField("", text: $model.authConfirm).textFieldStyle(.roundedBorder).frame(width: 200) }
+                    GridRow {
+                        Color.clear.frame(width: 1, height: 1)
+                        PasswordRules(password: model.net.auth, confirm: model.authConfirm)
+                    }
+                }
+            }
+            if !changed, !model.net.auth.isEmpty, !PasswordPolicy.isAcceptable(model.net.auth) {
+                Label("The current password doesn't meet the password rules (at least \(PasswordPolicy.minLength) characters with upper and lower case, a digit and a symbol). Consider changing it.",
+                      systemImage: "exclamationmark.shield").font(.caption).foregroundStyle(.orange)
             }
             Text("Changing DHCP or the static address reboots the device (about 20 seconds offline).")
                 .font(.caption).foregroundStyle(.secondary)
         }.padding(12)
+    }
+}
+
+/// Strength meter and the checklist of password rules, shown while a new remote access password is typed.
+struct PasswordRules: View {
+    let password: String
+    let confirm: String
+
+    private func color(_ s: PasswordPolicy.Strength) -> Color {
+        switch s {
+        case .weak: return .red
+        case .medium: return .orange
+        case .strong: return Color(red: 0.55, green: 0.75, blue: 0.1)
+        case .veryStrong: return .green
+        }
+    }
+
+    var body: some View {
+        let strength = PasswordPolicy.strength(password)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                HStack(spacing: 3) {
+                    ForEach(PasswordPolicy.Strength.allCases, id: \.rawValue) { level in
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(!password.isEmpty && level.rawValue <= strength.rawValue ? color(strength) : Color.secondary.opacity(0.25))
+                            .frame(width: 46, height: 6)
+                    }
+                }
+                .animation(.easeOut(duration: 0.15), value: strength)
+                Text(password.isEmpty ? "" : strength.label).font(.caption.weight(.semibold)).foregroundStyle(color(strength))
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Password strength")
+            .accessibilityValue(password.isEmpty ? "Empty" : strength.label)
+            ForEach(PasswordPolicy.requirements(password)) { r in
+                Label(r.label, systemImage: r.met ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(r.met ? .green : .secondary)
+            }
+            if !confirm.isEmpty || PasswordPolicy.isAcceptable(password) {
+                let same = confirm == password
+                Label(same ? "Passwords match" : "Passwords don't match", systemImage: same ? "checkmark.circle.fill" : "xmark.circle")
+                    .foregroundStyle(same ? .green : .red)
+            }
+        }
+        .font(.caption)
     }
 }
 

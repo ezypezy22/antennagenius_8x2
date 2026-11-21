@@ -1,5 +1,12 @@
 # Changelog
 
+## 26.11.4
+
+### Enhancements
+
+A new remote access password must be at least 12 characters with an upper-case letter, a lower-case letter, a digit and a symbol (no spaces, accented letters, | or =), and must be typed twice; Settings › Network shows a strength bar (Weak, Medium, Strong, Very strong) and ticks off each rule while you type
+Settings › Network warns when the unit's current password doesn't meet these rules; logging in still accepts any existing password
+
 ## 26.11.3
 
 ### Enhancements
