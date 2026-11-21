@@ -44,6 +44,14 @@ command syntax can't carry. `network get` reports only `auth=1` (a password is s
 so the app sends `auth=` only when a new password is typed. Eight characters is short for a service on the
 internet: prefer reaching the unit over a VPN to forwarding TCP 9007.
 
+## Band from CAT (rigctld or flrig)
+
+For radios without a FlexRadio link or band data cable, Settings › Bands › CAT (this Mac) reads each radio's
+frequency from Hamlib `rigctld` (TCP, default port 4532, command `f`) or `flrig` (XML-RPC, default port 12345,
+`rig.get_vfo`) and sends `port set <n> auto=0 source=MANUAL band=<b>`, using the band ranges configured on the
+device. Changes wait while the port transmits. It works only while the app is running; for rigctld, start it
+with your radio's model and serial port, e.g. `rigctld -m 3073 -r /dev/cu.usbserial-XXXX -s 19200`.
+
 ## Tests
 
 `swift test` (needs XCTest, which comes with Xcode; the Command Line Tools alone do not include it).

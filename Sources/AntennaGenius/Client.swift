@@ -178,6 +178,16 @@ final class AGClient: ObservableObject {
         }
     }
 
+    /// Band from the radio's CAT frequency. The documented way for a computer to set the band is
+    /// `auto=0 source=MANUAL band=<n>`; only the parts not already in place are sent.
+    func setBandFromCAT(port id: Int, band: Int) {
+        guard let p = ports.first(where: { $0.id == id }) else { return }
+        var cmd = "port set \(id)"
+        if p.auto { cmd += " auto=0" }
+        if p.source != "MANUAL" { cmd += " source=MANUAL" }
+        send(cmd + " band=\(band)") { [weak self] _ in self?.refreshPort(id) }
+    }
+
     /// Manual on → take control; off → hand the port back to whatever source it followed before.
     func setManual(port: Int, _ on: Bool) {
         let src = on ? "MANUAL" : (followSource[port] ?? "FLEX")

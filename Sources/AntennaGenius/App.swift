@@ -79,6 +79,7 @@ struct AntennaGeniusApp: App {
 
     @StateObject private var discovery = Discovery()
     @StateObject private var client = AGClient()
+    @StateObject private var cat = CatManager()
     @AppStorage("showMenuBar") private var showMenuBar = true
 
     var body: some Scene {
@@ -87,7 +88,8 @@ struct AntennaGeniusApp: App {
             ContentView()
                 .environmentObject(discovery)
                 .environmentObject(client)
-                .onAppear { discovery.start() }
+                .environmentObject(cat)
+                .onAppear { discovery.start(); cat.attach(client) }
         }
         .windowResizability(.contentSize)
         .commands {
@@ -103,7 +105,7 @@ struct AntennaGeniusApp: App {
 
         // Real windows (not sheets) so they can be moved, left open beside the panel, and resized.
         Window("Antenna Genius Settings", id: "settings") {
-            SettingsWindowRoot().environmentObject(client)
+            SettingsWindowRoot().environmentObject(client).environmentObject(cat)
         }
         .windowResizability(.contentMinSize)
 

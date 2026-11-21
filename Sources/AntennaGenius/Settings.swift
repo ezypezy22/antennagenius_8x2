@@ -3,15 +3,16 @@ import SwiftUI
 // MARK: - Settings (laid out like the Windows app: menu on the left, green page header, Save / Cancel)
 
 enum SettingsPage: String, CaseIterable, Identifiable {
-    case info = "Basic information", antennas = "Antennas", outputs = "Output relays", bands = "Bands", flex = "FlexRadio", bcd = "BCD", p2p = "P2P", network = "Network settings", stack = "Stack settings", advanced = "Advanced options"
+    case info = "Basic information", antennas = "Antennas", outputs = "Output relays", bands = "Bands", flex = "FlexRadio", cat = "CAT (this Mac)", bcd = "BCD", p2p = "P2P", network = "Network settings", stack = "Stack settings", advanced = "Advanced options"
     var id: String { rawValue }
     /// Sub-items shown indented under "Bands".
-    var isSub: Bool { self == .flex || self == .bcd || self == .p2p }
+    var isSub: Bool { self == .flex || self == .cat || self == .bcd || self == .p2p }
     /// Green header text; the FlexRadio page draws its own per-port headers.
     var header: String? {
         switch self {
         case .flex: return nil
         case .bands: return "Bands configuration"
+        case .cat: return "Band source via CAT (Hamlib rigctld or flrig on this Mac)"
         case .bcd: return "Band source via BCD"
         case .p2p: return "Band source via Pin to Port"
         default: return rawValue
@@ -42,6 +43,8 @@ final class SettingsModel: ObservableObject {
     @Published var confirmRestore = false
     /// Second entry of a new remote access password.
     @Published var authConfirm = ""
+    /// CAT settings per radio port; kept by the app, not the device.
+    @Published var cat: [Int: CatConfig] = [:]
     private var loaded = false
 
     @MainActor func load(from c: AGClient) {
@@ -57,11 +60,13 @@ final class SettingsModel: ObservableObject {
         antennas = c.antennas
         bands = c.bands
         flex = c.flexConfigs
+        cat = [1: CatConfig.load(port: 1), 2: CatConfig.load(port: 2)]
     }
 }
 
 struct SettingsView: View {
     @EnvironmentObject var client: AGClient
+    @EnvironmentObject var catManager: CatManager
     let close: () -> Void
     @ObservedObject var model: SettingsModel
 
@@ -95,6 +100,7 @@ struct SettingsView: View {
                         case .antennas: AntennaSettingsPage(model: model)
                         case .bands: BandSettingsPage(model: model)
                         case .flex: FlexPage(model: model)
+                        case .cat: CatPage(model: model)
                         case .bcd: BCDPage()
                         case .p2p: P2PPage()
                         case .network: NetworkPage(model: model)
@@ -140,6 +146,15 @@ struct SettingsView: View {
                 return
             }
         }
+        for (id, c) in model.cat where c.kind != .off {
+            guard NetworkConfig.validHost(c.host), c.port > 0 else {
+                model.validation = "CAT for Radio \(id == 1 ? "A" : "B"): enter the address of the Mac running \(c.kind.label) and its port."
+                model.page = .cat
+                return
+            }
+        }
+        for (id, c) in model.cat where c != CatConfig.load(port: id) { c.save(port: id) }
+        catManager.reload()
         if !n.auth.isEmpty {
             guard PasswordPolicy.isAcceptable(n.auth) else {
                 model.validation = "The new remote access password doesn't meet the requirements listed on the Network page."
@@ -569,6 +584,71 @@ struct AboutView: View {
             Button("Close", action: close).keyboardShortcut(.cancelAction).padding(.top, 6)
         }
         .padding(24).frame(width: 340)
+    }
+}
+
+/// The radio's frequency from Hamlib rigctld or flrig, turned into the port's band by this app.
+struct CatPage: View {
+    @EnvironmentObject var client: AGClient
+    @EnvironmentObject var catManager: CatManager
+    @ObservedObject var model: SettingsModel
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("For radios without a FlexRadio link or band data cable: the app reads the frequency from rigctld or flrig and sets the port's band (the source becomes MANUAL). A band change waits while the radio transmits, so antennas never switch under power. Works while this app is running.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                ForEach(1...max(client.ports.count, 1), id: \.self) { portBox($0) }
+            }.padding(8)
+        }
+    }
+
+    private func binding(_ id: Int) -> Binding<CatConfig> {
+        Binding(get: { model.cat[id] ?? CatConfig() }, set: { model.cat[id] = $0 })
+    }
+
+    private func portBox(_ id: Int) -> some View {
+        let c = binding(id)
+        return GroupBox("Radio \(id == 1 ? "A" : "B")") {
+            VStack(alignment: .leading, spacing: 8) {
+                Picker("Frequency from", selection: Binding(get: { c.wrappedValue.kind }, set: { k in
+                    // Swap to the other program's usual port unless a custom one was typed.
+                    if CatConfig.Kind.allCases.map(\.defaultPort).contains(c.wrappedValue.port) { c.wrappedValue.port = k.defaultPort }
+                    c.wrappedValue.kind = k
+                })) {
+                    ForEach(CatConfig.Kind.allCases) { Text($0.label).tag($0) }
+                }.pickerStyle(.segmented).frame(width: 360)
+                Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 6) {
+                    GridRow {
+                        Text("Address")
+                        TextField("127.0.0.1", text: c.host).textFieldStyle(.roundedBorder).frame(width: 200)
+                    }
+                    GridRow {
+                        Text("Port")
+                        TextField("", value: c.port, format: .number.grouping(.never)).textFieldStyle(.roundedBorder).frame(width: 80)
+                    }
+                }
+                .disabled(c.wrappedValue.kind == .off).opacity(c.wrappedValue.kind == .off ? 0.5 : 1)
+                statusLine(id)
+            }.padding(4)
+        }
+    }
+
+    /// Live state of the saved link (edits take effect on Save).
+    @ViewBuilder private func statusLine(_ id: Int) -> some View {
+        if catManager.isActive(port: id) {
+            if let s = catManager.status[id] {
+                if let e = s.error {
+                    Label(e, systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
+                } else if let hz = s.hz {
+                    let band = s.band.flatMap { b in client.bands.first { $0.id == b }?.name } ?? "no configured band"
+                    Label(String(format: "%.3f MHz → %@%@", Double(hz) / 1e6, band, s.heldForTX ? " (waiting for TX to end)" : ""),
+                          systemImage: "dot.radiowaves.left.and.right").foregroundStyle(.green)
+                }
+            } else {
+                Label("Connecting…", systemImage: "hourglass").foregroundStyle(.secondary)
+            }
+        }
     }
 }
 

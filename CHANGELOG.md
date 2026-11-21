@@ -1,5 +1,13 @@
 # Changelog
 
+## 26.11.6
+
+### Enhancements
+
+Band from the radio over CAT, for radios without a FlexRadio link or band data cable: Settings › Bands › CAT (this Mac) reads each radio's frequency from Hamlib rigctld or flrig twice a second and sets the port's band (auto=0, source=MANUAL); a frequency outside every configured band sets "None"
+A band change from CAT waits while the radio is transmitting, so antennas never switch under power
+The panel shows "CAT" as the source of a radio port whose band follows CAT (with "CAT ⚠︎" and the reason in its tooltip if rigctld or flrig can't be reached); its manual source and band buttons are locked meanwhile
+
 ## 26.11.5
 
 ### Enhancements

@@ -51,6 +51,7 @@ struct PanelButton: View {
 /// Top of each radio column: source (MANUAL / FLEX…) and band, like the Windows panel.
 struct SourceBandHeader: View {
     @EnvironmentObject var client: AGClient
+    @EnvironmentObject var cat: CatManager
     let port: PortState
     @StateObject private var picking = Box(false)
 
@@ -58,15 +59,32 @@ struct SourceBandHeader: View {
         client.bands.first { $0.id == port.band }?.name ?? "None"
     }
 
+    /// With CAT on, the app drives this port's band from the radio, so the manual controls are locked.
+    private var catOn: Bool { cat.isActive(port: port.id) }
+    private var catHelp: String {
+        guard let s = cat.status[port.id] else { return "Band follows the radio over CAT (Settings › CAT)." }
+        if let e = s.error { return e }
+        if s.heldForTX { return "Band change waits until the radio stops transmitting." }
+        return s.hz.map { String(format: "Radio on %.3f MHz. Band follows the radio over CAT (Settings › CAT).", Double($0) / 1e6) } ?? ""
+    }
+    private var sourceTitle: String {
+        if catOn { return cat.status[port.id]?.error != nil ? "CAT ⚠︎" : "CAT" }
+        return port.source.isEmpty ? "—" : port.source
+    }
+    private var bandEnabled: Bool { port.source == "MANUAL" && !catOn }
+
     var body: some View {
         VStack(spacing: 2) {
             Button { client.setManual(port: port.id, port.source != "MANUAL") } label: {
-                PanelButton(title: port.source.isEmpty ? "—" : port.source)
+                PanelButton(title: sourceTitle)
             }.buttonStyle(.plain)
+                .disabled(catOn)
+                .help(catOn ? catHelp : "")
             Button { picking.value = true } label: { PanelButton(title: bandName) }
                 .buttonStyle(.plain)
-                .disabled(port.source != "MANUAL")
-                .opacity(port.source == "MANUAL" ? 1 : (Theme.scale > 1 ? 0.8 : 0.6))
+                .disabled(!bandEnabled)
+                .opacity(bandEnabled || catOn ? 1 : (Theme.scale > 1 ? 0.8 : 0.6))
+                .help(catOn ? catHelp : "")
                 .popover(isPresented: $picking.value, arrowEdge: .bottom) {
                     ScrollView {
                         VStack(spacing: 0) {
