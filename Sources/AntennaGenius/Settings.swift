@@ -140,7 +140,7 @@ struct SettingsView: View {
                 return
             }
         }
-        if n.auth != (client.network?.auth ?? "") {
+        if !n.auth.isEmpty {
             guard PasswordPolicy.isAcceptable(n.auth) else {
                 model.validation = "The new remote access password doesn't meet the requirements listed on the Network page."
                 model.page = .network
@@ -225,7 +225,7 @@ struct InfoPage: View {
 struct NetworkPage: View {
     @EnvironmentObject var client: AGClient
     @ObservedObject var model: SettingsModel
-    private var changed: Bool { model.net.auth != (client.network?.auth ?? "") }
+    private var changed: Bool { !model.net.auth.isEmpty }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -238,7 +238,11 @@ struct NetworkPage: View {
             .disabled(model.net.dhcp).opacity(model.net.dhcp ? 0.5 : 1)
             Divider().padding(.vertical, 4)
             Grid(alignment: .leading, horizontalSpacing: 12) {
-                GridRow { Text("Remote access password"); SecureField("", text: $model.net.auth).textFieldStyle(.roundedBorder).frame(width: 200) }
+                GridRow {
+                    Text("New remote access password")
+                    SecureField(model.net.passwordSet ? "Unchanged" : "None set", text: $model.net.auth)
+                        .textFieldStyle(.roundedBorder).frame(width: 200)
+                }
                 if changed {
                     GridRow { Text("Confirm password"); SecureField("", text: $model.authConfirm).textFieldStyle(.roundedBorder).frame(width: 200) }
                     GridRow {
@@ -247,9 +251,11 @@ struct NetworkPage: View {
                     }
                 }
             }
-            if !changed, !model.net.auth.isEmpty, !PasswordPolicy.isAcceptable(model.net.auth) {
-                Label("The current password doesn't meet the password rules (at least \(PasswordPolicy.minLength) characters with upper and lower case, a digit and a symbol). Consider changing it.",
-                      systemImage: "exclamationmark.shield").font(.caption).foregroundStyle(.orange)
+            if !changed {
+                Text(model.net.passwordSet
+                     ? "A password is set. The device doesn't reveal it; leave this empty to keep it, or type a new one to replace it."
+                     : "No remote access password is set.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Text("Changing DHCP or the static address reboots the device (about 20 seconds offline).")
                 .font(.caption).foregroundStyle(.secondary)

@@ -4,8 +4,12 @@
 
 ### Enhancements
 
-A new remote access password must be at least 12 characters with an upper-case letter, a lower-case letter, a digit and a symbol (no spaces, accented letters, | or =), and must be typed twice; Settings › Network shows a strength bar (Weak, Medium, Strong, Very strong) and ticks off each rule while you type
-Settings › Network warns when the unit's current password doesn't meet these rules; logging in still accepts any existing password
+A new remote access password must be exactly 8 characters (the most firmware 4.1.19 accepts; longer ones are refused with 0x20) with an upper-case letter, a lower-case letter, a digit and a symbol, no common words or mostly repeated characters, and no spaces, accented letters, | or =; it is typed twice, and Settings › Network shows a strength bar (Weak, Medium, Strong, Very strong) and ticks off each rule while you type
+Logging in still accepts any existing password
+
+### Bug Fixes
+
+Saving network settings no longer changes the remote access password to "1": the device reports only whether a password is set (auth=1), and the app used to send that back as the password. The password field now starts empty, says whether a password is set, and is sent only when you type a new one
 
 ## 26.11.3
 

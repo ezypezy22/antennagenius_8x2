@@ -123,7 +123,11 @@ struct NetworkConfig: Equatable {
     var address = ""
     var netmask = ""
     var gateway = ""
+    /// A new remote access password to send; empty keeps the one the device has.
     var auth = ""
+    /// Firmware 4.1.19 doesn't reveal the password: `network get` answers `auth=1` once one is set
+    /// (sending that back would make "1" the password), so only whether one is set is known.
+    var passwordSet = false
 
     init() {}
     init(kv: [String: String]) {
@@ -131,7 +135,7 @@ struct NetworkConfig: Equatable {
         address = kv["address"] ?? ""
         netmask = kv["netmask"] ?? ""
         gateway = kv["gateway"] ?? ""
-        auth = kv["auth"] ?? ""
+        passwordSet = !(kv["auth"] ?? "").isEmpty && kv["auth"] != "0"
     }
 
     /// True if the text can be sent as one command token: no whitespace, control characters or `|`.
