@@ -127,8 +127,16 @@ struct UsageList: View {
         return m >= 60 ? "\(m / 60)h \(String(format: "%02d", m % 60))m" : "\(m)m"
     }
 
+    /// Most used first; equal times (e.g. both radios counted the same seconds) by name, so rows don't
+    /// swap places each time the window redraws.
+    static func ordered(_ items: [String: UsageCounter]) -> [(key: String, value: UsageCounter)] {
+        items.sorted {
+            $0.value.on != $1.value.on ? $0.value.on > $1.value.on : $0.key.localizedStandardCompare($1.key) == .orderedAscending
+        }
+    }
+
     var body: some View {
-        let sorted = items.sorted { $0.value.on > $1.value.on }
+        let sorted = Self.ordered(items)
         let top = max(sorted.first?.value.on ?? 1, 1)
         VStack(alignment: .leading, spacing: 6) {
             Text(title).font(.headline)

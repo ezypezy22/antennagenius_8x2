@@ -71,6 +71,11 @@ final class ActivityTests: XCTestCase {
         c.disconnect()
     }
 
+    func testEqualTimesKeepAStableOrder() {
+        let items = ["None": UsageCounter(on: 600), "40m": UsageCounter(on: 600), "20m": UsageCounter(on: 900)]
+        for _ in 0..<20 { XCTAssertEqual(UsageList.ordered(items).map(\.key), ["20m", "40m", "None"]) }
+    }
+
     func testCSV() {
         let s = ActivityStore(directory: nil)
         s.add(1, .antenna, "Antenna → \"Big\" Yagi", origin: nil)

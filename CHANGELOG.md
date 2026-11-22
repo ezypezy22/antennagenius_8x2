@@ -1,5 +1,11 @@
 # Changelog
 
+## 26.11.9
+
+### Bug Fixes
+
+Usage tab: bands or antennas with the same time (e.g. one radio on 40m while the other was on None) no longer swap places every second; equal times are listed by name
+
 ## 26.11.8
 
 ### Enhancements
