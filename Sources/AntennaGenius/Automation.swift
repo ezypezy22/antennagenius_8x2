@@ -122,14 +122,14 @@ final class Automation {
             client.apply(preset: p)
         case .release(let port):
             guard !transmitting(port, client) else { return }
-            client.clearAntenna(port: port)
+            client.withOrigin("Link") { client.clearAntenna(port: port) }
         case .select(let port, let ref):
             guard let id = Self.antennaID(ref, in: client.antennas) else {
                 if case .name(let n) = ref { return report("No antenna is called “\(n)”.") }
                 return report("There is no antenna \(ref).")
             }
             guard !transmitting(port, client) else { return }
-            client.selectAntenna(port: port, antenna: id)
+            client.withOrigin("Link") { client.selectAntenna(port: port, antenna: id) }
         }
     }
 

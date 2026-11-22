@@ -64,6 +64,12 @@ final class AGClient: ObservableObject {
     private var waitingReason = ""
     /// Between TCP ready and the session starting: the device's greeting line, and the login if it asks for one.
     private var gotPrologue = false
+    /// Told about every port change after the port's first report in a session, with who asked for it
+    /// (nil when nothing in this app did: FlexRadio, another client or the front panel).
+    var portObservers: [(_ old: PortState, _ new: PortState, _ origin: String?) -> Void] = []
+    private var reportedPorts: Set<Int> = []
+    private var origins: [Int: (label: String, at: Date)] = [:]
+    private var originLabel: String?
     private var handshakeTimer: Timer?
     /// Command text and send time per sequence number, so a reply that never comes can be given up on.
     private var sentAt: [Int: (cmd: String, at: Date)] = [:]
@@ -82,6 +88,7 @@ final class AGClient: ObservableObject {
         lastError = nil
         passwordNeeded = nil
         gotPrologue = false
+        reportedPorts = []; origins = [:]
         portCount = max(device.ports, 1)
         ports = (1...max(device.ports, 1)).map { PortState(id: $0) }
         antennas = (1...max(device.antennas, 1)).map { AntennaInfo(id: $0, name: "Antenna \($0)", tx: 0, rx: 0, inband: 0) }
@@ -145,6 +152,7 @@ final class AGClient: ObservableObject {
             lastError = "\(ant.name) isn't enabled for \(bandName) on Radio \(id == 1 ? "A" : "B")."
             return
         }
+        markOrigin(id)
         var cmd = "port set \(id)"
         if p.source != "MANUAL" { cmd += " source=MANUAL" }
         if rxOK { cmd += " rxant=\(antenna)" }
@@ -171,21 +179,25 @@ final class AGClient: ObservableObject {
             return
         }
         guard let p = ports.first(where: { $0.id == id }) else { return }
+        markOrigin(id)
         var cmd = "port set \(id)"
         if p.source != "MANUAL" { cmd += " source=MANUAL" }
         send(cmd + " rxant=\(rx) txant=\(tx)") { [weak self] _ in self?.refreshPort(id) }
     }
 
     func clearAntenna(port id: Int) {
+        markOrigin(id)
         send("port set \(id) rxant=0 txant=0") { [weak self] _ in self?.refreshPort(id) }
     }
 
     func setAuto(port: Int, _ on: Bool) {
+        markOrigin(port)
         send("port set \(port) auto=\(on ? 1 : 0)") { [weak self] _ in self?.refreshPort(port) }
     }
 
     func setBand(port: Int, band: Int) {
         guard let p = ports.first(where: { $0.id == port }) else { return }
+        markOrigin(port)
         send("port set \(port)\(p.source == "MANUAL" ? "" : " source=MANUAL") band=\(band)") { [weak self] _ in
             self?.refreshPort(port)
         }
@@ -195,6 +207,7 @@ final class AGClient: ObservableObject {
     /// `auto=0 source=MANUAL band=<n>`; only the parts not already in place are sent.
     func setBandFromCAT(port id: Int, band: Int) {
         guard let p = ports.first(where: { $0.id == id }) else { return }
+        markOrigin(id)
         var cmd = "port set \(id)"
         if p.auto { cmd += " auto=0" }
         if p.source != "MANUAL" { cmd += " source=MANUAL" }
@@ -204,6 +217,7 @@ final class AGClient: ObservableObject {
     /// Manual on → take control; off → hand the port back to whatever source it followed before.
     func setManual(port: Int, _ on: Bool) {
         let src = on ? "MANUAL" : (followSource[port] ?? "FLEX")
+        markOrigin(port)
         send("port set \(port) source=\(src)") { [weak self] _ in self?.refreshPort(port) }
     }
 
@@ -343,16 +357,23 @@ final class AGClient: ObservableObject {
     }
 
     /// Device drops all connections and is offline ~20 s.
-    func reboot() { send("reboot") }
+    func reboot() { restartRequestedAt = Date(); send("reboot") }
 
     /// Restores factory defaults (names, bands, antenna setup, network); the device reboots itself.
-    func factoryReset() { send("conf init") }
+    func factoryReset() { restartRequestedAt = Date(); send("conf init") }
+
+    /// Set when this app asked the device to restart, so its going offline isn't reported as a fault.
+    private var restartRequestedAt: Date?
+    var restartExpected: Bool { restartRequestedAt.map { Date().timeIntervalSince($0) < 120 } ?? false }
 
     /// Changing DHCP, or any address while DHCP is off, makes the device reboot (~20 s offline).
     func saveNetwork(_ n: NetworkConfig) {
         guard NetworkConfig.isSafeToken(n.auth) else {
             lastError = "The remote access password can't contain spaces or control characters."
             return
+        }
+        if let cur = network, cur.dhcp != n.dhcp || (!n.dhcp && (cur.address != n.address || cur.netmask != n.netmask || cur.gateway != n.gateway)) {
+            restartRequestedAt = Date()
         }
         var cmd = "network set dhcp=\(n.dhcp ? 1 : 0)"
         if !n.dhcp { cmd += " address=\(n.address) netmask=\(n.netmask) gateway=\(n.gateway)" }
@@ -641,12 +662,27 @@ final class AGClient: ObservableObject {
         }
     }
 
+    /// Runs `body` with its port commands credited to `label` (e.g. a preset's name) in the history.
+    func withOrigin(_ label: String, _ body: () -> Void) {
+        originLabel = label
+        body()
+        originLabel = nil
+    }
+
+    private func markOrigin(_ port: Int) { origins[port] = (originLabel ?? "This app", Date()) }
+
     private func applyPort(message: String) {
         let (w, kv) = AGProtocol.tokens(message)
         guard w.count >= 2, w[0] == "port", let id = Int(w[1]),
               let i = ports.firstIndex(where: { $0.id == id }) else { return }
+        let old = ports[i]
         ports[i].apply(kv)
         if let src = kv["source"], src != "MANUAL" { followSource[id] = src }
+        // The first report after connecting is the starting point, not a change.
+        if !reportedPorts.insert(id).inserted, old != ports[i] {
+            let origin = origins[id].flatMap { Date().timeIntervalSince($0.at) < 3 ? $0.label : nil }
+            portObservers.forEach { $0(old, ports[i], origin) }
+        }
     }
 
     /// Hides the remote access password anywhere a command or reply is shown (`network … auth=`, `auth code=`).

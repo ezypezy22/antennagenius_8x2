@@ -108,10 +108,12 @@ extension AGClient {
     func apply(preset p: AntennaPreset) {
         guard state == .connected else { lastError = "Not connected, so “\(p.name)” wasn't applied."; return }
         var skipped: [String] = []
-        for r in p.radios {
-            guard let port = ports.first(where: { $0.id == r.port }) else { continue }
-            if port.tx { skipped.append(r.port == 1 ? "A" : "B"); continue }
-            setAntennas(port: r.port, rx: r.rx, tx: r.tx)
+        withOrigin("Preset “\(p.name)”") {
+            for r in p.radios {
+                guard let port = ports.first(where: { $0.id == r.port }) else { continue }
+                if port.tx { skipped.append(r.port == 1 ? "A" : "B"); continue }
+                setAntennas(port: r.port, rx: r.rx, tx: r.tx)
+            }
         }
         for o in p.outputs { activateOutput(o) }
         if !skipped.isEmpty {

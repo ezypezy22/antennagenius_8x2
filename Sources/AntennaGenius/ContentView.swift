@@ -44,6 +44,8 @@ struct TitleBar: View {
     @AppStorage("appearance") private var appearance = Appearance.light.rawValue
     @AppStorage("showMenuBar") private var showMenuBar = true
     @AppStorage("checkForUpdates") private var checkForUpdates = true
+    @AppStorage(Notifier.Topic.device.rawValue) private var notifyDevice = true
+    @AppStorage(Notifier.Topic.cat.rawValue) private var notifyCAT = true
 
     var body: some View {
         HStack(spacing: 12) {
@@ -55,7 +57,12 @@ struct TitleBar: View {
                 Picker("Appearance", selection: $appearance) {
                     ForEach(Appearance.allCases) { Text($0.label).tag($0.rawValue) }
                 }
+                Button("Activity (history and usage)…") { openWindow(id: "activity") }
                 Button("Protocol log…") { openWindow(id: "log") }
+                Menu("Notifications") {
+                    Toggle("When the device goes offline or comes back", isOn: $notifyDevice)
+                    Toggle("When CAT loses or regains a radio", isOn: $notifyCAT)
+                }
                 Toggle("Show in menu bar", isOn: $showMenuBar)
                 Divider()
                 Button("About Antenna Genius…") { showAbout.value = true }

@@ -71,6 +71,14 @@ Focus returns to the app that was in front (e.g. the logger) unless the link add
 never switch a radio that is transmitting. Native Shortcuts actions (App Intents) would need an Xcode build,
 since `swift build` doesn't produce the App Intents metadata.
 
+## Activity, usage and notifications
+
+Gear menu › Activity… shows the change history (antenna, band and source per radio, with who asked for it)
+and usage: time per band and antenna, and transmit time from the port's `tx` flag. The API has no power, SWR
+or other sensor readings, so transmit time is the only RF figure available. History and usage are kept in
+`~/Library/Application Support/Antenna Genius/`. Notifications (device offline/back, CAT lost/back) can be turned
+off in gear menu › Notifications.
+
 ## Tests
 
 `swift test` (needs XCTest, which comes with Xcode; the Command Line Tools alone do not include it).

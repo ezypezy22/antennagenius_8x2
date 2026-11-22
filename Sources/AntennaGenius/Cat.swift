@@ -277,7 +277,7 @@ final class CatManager: ObservableObject {
                     let recent = lastSent[id].map { $0.band == b && Date().timeIntervalSince($0.at) < 2 } ?? false
                     if !recent {
                         lastSent[id] = (b, Date())
-                        client.setBandFromCAT(port: id, band: b)
+                        client.withOrigin("CAT") { client.setBandFromCAT(port: id, band: b) }
                     }
                 }
             }

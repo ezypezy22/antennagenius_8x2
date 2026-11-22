@@ -39,6 +39,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// main thread or network teardown can't leave a zombie process holding UDP 9007.
     func applicationWillTerminate(_ notification: Notification) {
         AppDelegate.armWatchdog()
+        MainActor.assumeIsolated { ActivityStore.shared.save() }
     }
 
     private static var watchdogArmed = false
@@ -95,7 +96,8 @@ struct AntennaGeniusApp: App {
                 .environmentObject(discovery)
                 .environmentObject(client)
                 .environmentObject(cat)
-                .onAppear { discovery.start(); cat.attach(client); Automation.shared.client = client }
+                .onAppear { discovery.start(); cat.attach(client); Automation.shared.client = client
+                    ActivityStore.shared.attach(client, cat: cat) }
         }
         .windowResizability(.contentSize)
         .commands {
@@ -120,6 +122,11 @@ struct AntennaGeniusApp: App {
             PresetsWindowRoot().environmentObject(client)
         }
         .defaultSize(width: 640, height: 360)
+
+        Window("Activity", id: "activity") {
+            ActivityWindowRoot().environmentObject(client)
+        }
+        .defaultSize(width: 700, height: 460)
 
         Window("Protocol log", id: "log") {
             LogWindowRoot().environmentObject(client)

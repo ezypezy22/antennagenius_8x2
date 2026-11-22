@@ -1,5 +1,13 @@
 # Changelog
 
+## 26.11.8
+
+### Enhancements
+
+Activity window (gear menu › Activity…): a History tab lists every antenna, band and source change per radio with the time and who asked for it (this app, a preset, a link, CAT, or "Elsewhere": FlexRadio, another client or the front panel), plus connection drops and app messages; filter by radio, export as CSV, clear. Keeps the last 5000 entries on disk
+Usage tab: time on each band and with each antenna selected, and transmit time for each (from the unit's TX flag; the Antenna Genius has no power or SWR sensors), per radio or both, for today, 7 days, 30 days or all time; reset
+Notifications when the unit stays offline for 30 seconds and when it comes back (not after a reboot you asked for), and when CAT loses a radio for 10 seconds and when it is back; each can be turned off in gear menu › Notifications
+
 ## 26.11.7
 
 ### Enhancements
